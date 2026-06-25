@@ -1,4 +1,4 @@
-# A Machine Learning-Based Framework for Dropout Prediction and Personalized Recommendation in E-Learning Systems
+# Dropout Prediction and Personalized Recommendation in E-Learning Systems
 
 ## Project Overview
 
