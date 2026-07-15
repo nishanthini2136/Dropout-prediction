@@ -1,9 +1,16 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import './CourseCard.css';
 
 const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) => {
+  const navigate = useNavigate();
+
+  const handleCardClick = () => {
+    navigate(`/course/${course._id}`);
+  };
+
   return (
-    <div className="course-card">
+    <div className="course-card" onClick={handleCardClick} style={{ cursor: 'pointer' }}>
       {isEnrolled && <div className="badge-enrolled">Enrolled</div>}
       <div className="code">{course.code} · {course.category}</div>
       <h3>{course.title}</h3>
@@ -14,7 +21,7 @@ const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) =
           {full ? 'Full' : `${seatsLeft} seats left`}
         </span>
       </div>
-      <div className="actions">
+      <div className="actions" onClick={(e) => e.stopPropagation()}>
         {isEnrolled ? (
           <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={onDrop}>
             Drop Course

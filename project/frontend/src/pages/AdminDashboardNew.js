@@ -193,7 +193,7 @@ const AdminDashboard = () => {
             <h2>Course Management</h2>
             <p className="section-subtitle">Create, edit, and manage courses. Changes are immediately available to all students.</p>
           </div>
-          <button className="btn btn-gold btn-sm" onClick={() => openModal()}>+ Add Course</button>
+          <button className="btn btn-gold btn-sm" onClick={() => navigate('/admin/course/create')}>+ Add Course</button>
         </div>
 
         <div className="search-bar">

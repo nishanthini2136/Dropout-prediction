@@ -7,6 +7,7 @@ import StudentRegister from './pages/StudentRegister';
 import AdminDashboard from './pages/AdminDashboardNew';
 import StudentDashboard from './pages/StudentDashboardNew';
 import CourseDetails from './pages/CourseDetails';
+import CourseCreator from './pages/CourseCreator';
 import MyCourses from './pages/MyCourses';
 import Profile from './pages/Profile';
 import { AuthProvider } from './context/AuthContext';
@@ -24,6 +25,7 @@ function App() {
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
             <Route path="/student/dashboard" element={<StudentDashboard />} />
             <Route path="/course/:id" element={<CourseDetails />} />
+            <Route path="/admin/course/create" element={<CourseCreator />} />
             <Route path="/my-courses" element={<MyCourses />} />
             <Route path="/profile" element={<Profile />} />
           </Routes>
