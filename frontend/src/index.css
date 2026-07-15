@@ -1,0 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root {
+  --navy-950: #0B1023;
+  --navy-900: #101935;
+  --navy-800: #1B2547;
+  --navy-700: #26305A;
+  --navy-line: rgba(233,236,245,0.10);
+  --parchment: #F4F1E8;
+  --ink: #F2F4F8;
+  --ink-muted: #9AA5C0;
+  --ink-faint: #6E7996;
+  --gold: #E8B84B;
+  --gold-deep: #C79633;
+  --teal: #2FBF9F;
+  --rose: #E1667A;
+  --radius: 14px;
+  --serif: 'Fraunces', serif;
+  --sans: 'Inter', sans-serif;
+  --mono: 'IBM Plex Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--navy-950);
+  color: var(--ink);
+  font-family: var(--sans);
+  min-height: 100vh;
+  background-image: radial-gradient(circle at 1px 1px, rgba(233,236,245,0.045) 1px, transparent 0);
+  background-size: 22px 22px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+}
+
+::selection {
+  background: var(--gold);
+  color: var(--navy-950);
+}
+
+code {
+  font-family: var(--mono);
+}

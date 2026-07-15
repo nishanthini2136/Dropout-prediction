@@ -1,0 +1,32 @@
+.toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  opacity: 0;
+  background: var(--navy-800);
+  border: 1px solid rgba(232, 184, 75, 0.4);
+  color: var(--ink);
+  padding: 13px 22px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  z-index: 200;
+  transition: 0.3s;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.toast .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--teal);
+  flex-shrink: 0;
+}
