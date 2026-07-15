@@ -15,27 +15,30 @@
 }
 
 .modal {
-  background: var(--navy-900);
-  border: 1px solid var(--navy-line);
+  background: #ffffff;
+  border: 1px solid #E5E7EB;
   border-radius: 16px;
   width: 100%;
   max-width: 520px;
-  padding: 34px;
+  padding: 32px;
   max-height: 88vh;
   overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(15, 23, 42, 0.15);
 }
 
 .modal h3 {
-  font-family: var(--serif);
+  font-family: 'Poppins', sans-serif;
   font-size: 24px;
   font-weight: 600;
   margin: 0 0 4px;
+  color: #111827;
 }
 
 .modal .sub {
-  color: var(--ink-muted);
-  font-size: 13.5px;
-  margin-bottom: 26px;
+  color: #4B5563;
+  font-size: 14px;
+  margin-bottom: 24px;
+  font-family: 'Poppins', sans-serif;
 }
 
 .modal-actions {

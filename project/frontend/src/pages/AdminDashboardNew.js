@@ -145,8 +145,8 @@ const AdminDashboard = () => {
 
   return (
     <div className="dashboard-screen">
-      <div className="wrap">
-        <div className="dash-nav">
+      <div className="dash-nav">
+        <div className="wrap">
           <div className="brandmark">
             <div className="seal">E</div>
             <div className="name">E-Learning<em>System</em></div>
@@ -157,35 +157,60 @@ const AdminDashboard = () => {
             <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
           </div>
         </div>
+      </div>
 
+      <div className="wrap">
         <div className="dash-header">
-          <div className="eyebrow">Course Management</div>
           <h1>Course Catalog Dashboard</h1>
-          <p>Create, edit, and manage courses. Changes are immediately available to all students.</p>
+          <p>Manage courses, instructors, enrollments, and student learning from one centralized dashboard.</p>
         </div>
 
         <div className="stat-row">
           <div className="stat-card">
+            <div className="icon">📚</div>
             <div className="num">{stats.totalCourses}</div>
             <div className="lbl">Active Courses</div>
           </div>
           <div className="stat-card">
+            <div className="icon">👥</div>
             <div className="num">{stats.totalEnrollments}</div>
             <div className="lbl">Total Enrollments</div>
           </div>
           <div className="stat-card">
+            <div className="icon">🎓</div>
             <div className="num">{stats.totalStudents}</div>
             <div className="lbl">Registered Students</div>
           </div>
           <div className="stat-card">
+            <div className="icon">💺</div>
             <div className="num">{stats.seatsRemaining}</div>
             <div className="lbl">Seats Remaining</div>
           </div>
         </div>
 
         <div className="section-head">
-          <h2>Catalog — All Courses</h2>
+          <div>
+            <h2>Course Management</h2>
+            <p className="section-subtitle">Create, edit, and manage courses. Changes are immediately available to all students.</p>
+          </div>
           <button className="btn btn-gold btn-sm" onClick={() => openModal()}>+ Add Course</button>
+        </div>
+
+        <div className="search-bar">
+          <input type="text" placeholder="Search courses..." />
+          <select className="toolbar-select">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select className="toolbar-select">
+            <option value="">All Instructors</option>
+          </select>
+          <select className="toolbar-select">
+            <option value="title">Sort by Title</option>
+            <option value="code">Sort by Code</option>
+            <option value="instructor">Sort by Instructor</option>
+          </select>
         </div>
 
         <table className="admin-table">
@@ -202,7 +227,12 @@ const AdminDashboard = () => {
             {courses.length === 0 ? (
               <tr>
                 <td colSpan="5">
-                  <div className="empty-state">No courses yet. Click "+ Add Course" to publish your first one.</div>
+                  <div className="empty-state">
+                    <div style={{ fontSize: '64px', marginBottom: '16px' }}>📚</div>
+                    <div style={{ fontSize: '20px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}>No Courses Available</div>
+                    <div style={{ fontSize: '14px', color: '#4B5563', marginBottom: '24px' }}>Start building your learning platform by creating your first course.</div>
+                    <button className="btn btn-gold btn-sm" onClick={() => openModal()}>Add Your First Course</button>
+                  </div>
                 </td>
               </tr>
             ) : (
@@ -210,7 +240,7 @@ const AdminDashboard = () => {
                 <tr key={course._id}>
                   <td>
                     <div className="ttitle">{course.title}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--ink-faint)', marginTop: '2px' }}>{course.category}</div>
+                    <div style={{ fontSize: '12px', color: '#9CA3AF', marginTop: '2px' }}>{course.category}</div>
                   </td>
                   <td className="tcode">{course.code}</td>
                   <td>{course.instructor}</td>

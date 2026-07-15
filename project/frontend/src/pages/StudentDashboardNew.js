@@ -105,8 +105,8 @@ const StudentDashboard = () => {
 
   return (
     <div className="dashboard-screen">
-      <div className="wrap">
-        <div className="dash-nav">
+      <div className="dash-nav">
+        <div className="wrap">
           <div className="brandmark">
             <div className="seal">E</div>
             <div className="name">E-Learning<em>System</em></div>
@@ -117,7 +117,9 @@ const StudentDashboard = () => {
             <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
           </div>
         </div>
+      </div>
 
+      <div className="wrap">
         <div className="dash-header">
           <div className="eyebrow">Student Portal</div>
           <h1>Welcome back, {user?.name?.split(' ')[0]}.</h1>
