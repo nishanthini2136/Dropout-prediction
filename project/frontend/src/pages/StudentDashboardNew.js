@@ -17,28 +17,40 @@ const StudentDashboard = () => {
   useEffect(() => {
     fetchCourses();
     fetchEnrolledCourses();
+
+    // Set up polling for real-time updates
+    const interval = setInterval(() => {
+      fetchCourses();
+      fetchEnrolledCourses();
+    }, 30000); // Poll every 30 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   const fetchCourses = async () => {
     try {
-      const response = await axios.get('/api/courses', {
+      const response = await axios.get('http://localhost:5000/api/courses', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
+      console.log('Courses fetched successfully:', response.data);
       setCourses(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error fetching courses:', error);
+      console.error('Error response:', error.response);
       setCourses([]);
     }
   };
 
   const fetchEnrolledCourses = async () => {
     try {
-      const response = await axios.get('/api/enrollments/my-courses', {
+      const response = await axios.get('http://localhost:5000/api/enrollments/my-courses', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
+      console.log('Enrolled courses fetched successfully:', response.data);
       setEnrolledCourses(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error fetching enrolled courses:', error);
+      console.error('Error response:', error.response);
       setEnrolledCourses([]);
     }
   };
@@ -50,30 +62,46 @@ const StudentDashboard = () => {
 
   const handleEnroll = async (courseId) => {
     try {
-      await axios.post('/api/enrollments', { course_id: courseId }, {
+      const response = await axios.post('http://localhost:5000/api/enrollments', { course_id: courseId }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
+      console.log('Enrolled successfully:', response.data);
       setToastMessage('Enrolled successfully');
       fetchCourses();
       fetchEnrolledCourses();
     } catch (error) {
       console.error('Error enrolling:', error);
-      setToastMessage('Error enrolling in course');
+      console.error('Error response:', error.response);
+      if (error.response) {
+        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
+      } else if (error.request) {
+        setToastMessage('Error: No response from server. Check if backend is running.');
+      } else {
+        setToastMessage(`Error: ${error.message}`);
+      }
     }
   };
 
   const handleDrop = async (enrollmentId) => {
     if (window.confirm('Are you sure you want to drop this course?')) {
       try {
-        await axios.delete(`/api/enrollments/${enrollmentId}`, {
+        const response = await axios.delete(`http://localhost:5000/api/enrollments/${enrollmentId}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
+        console.log('Course dropped successfully:', response.data);
         setToastMessage('Course dropped successfully');
         fetchCourses();
         fetchEnrolledCourses();
       } catch (error) {
         console.error('Error dropping course:', error);
-        setToastMessage('Error dropping course');
+        console.error('Error response:', error.response);
+        if (error.response) {
+          setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
+        } else if (error.request) {
+          setToastMessage('Error: No response from server. Check if backend is running.');
+        } else {
+          setToastMessage(`Error: ${error.message}`);
+        }
       }
     }
   };

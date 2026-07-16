@@ -122,6 +122,7 @@ const CourseCreator = () => {
   };
 
   const handleResourceChange = (e, moduleId, resourceId, field) => {
+    e.preventDefault();
     e.stopPropagation();
     updateResource(moduleId, resourceId, field, e.target.value);
   };
@@ -345,18 +346,27 @@ const CourseCreator = () => {
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
 
-      await axios.post('/api/courses', formData, {
+      const response = await axios.post('http://localhost:5000/api/courses', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         }
       });
 
+      console.log('Course saved successfully:', response.data);
       setToastMessage('Course saved as draft');
       setTimeout(() => navigate('/admin/dashboard'), 2000);
     } catch (error) {
       console.error('Error saving course:', error);
-      setToastMessage('Error saving course');
+      console.error('Error response:', error.response);
+      console.error('Error message:', error.message);
+      if (error.response) {
+        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
+      } else if (error.request) {
+        setToastMessage('Error: No response from server. Check if backend is running.');
+      } else {
+        setToastMessage(`Error: ${error.message}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -383,18 +393,27 @@ const CourseCreator = () => {
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
 
-      await axios.post('/api/courses', formData, {
+      const response = await axios.post('http://localhost:5000/api/courses', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         }
       });
 
+      console.log('Course published successfully:', response.data);
       setToastMessage('Course published successfully');
       setTimeout(() => navigate('/admin/dashboard'), 2000);
     } catch (error) {
       console.error('Error publishing course:', error);
-      setToastMessage('Error publishing course');
+      console.error('Error response:', error.response);
+      console.error('Error message:', error.message);
+      if (error.response) {
+        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
+      } else if (error.request) {
+        setToastMessage('Error: No response from server. Check if backend is running.');
+      } else {
+        setToastMessage(`Error: ${error.message}`);
+      }
     } finally {
       setSaving(false);
     }
@@ -404,8 +423,12 @@ const CourseCreator = () => {
     setActiveSection(activeSection === section ? null : section);
   };
 
-  const getInitials = (name) => {
-    return name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'AD';
+  const handleSectionClick = (e, section) => {
+    // Only toggle if clicking on the header, not on form elements
+    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('select') || e.target.closest('textarea')) {
+      return;
+    }
+    toggleSection(section);
   };
 
   const sections = [
@@ -444,7 +467,7 @@ const CourseCreator = () => {
           {sections.map(section => (
             <div
               key={section.id}
-              onClick={() => toggleSection(section.id)}
+              onClick={(e) => handleSectionClick(e, section.id)}
               style={{
                 background: '#ffffff',
                 border: '1px solid #E5E7EB',
@@ -506,6 +529,9 @@ const CourseCreator = () => {
                             value={basicInfo.category}
                             onChange={handleBasicInfoChange}
                             onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            autoFocus={false}
+                            tabIndex={-1}
                             style={{
                               width: '100%',
                               padding: '12px 16px',
@@ -532,6 +558,9 @@ const CourseCreator = () => {
                             value={basicInfo.difficulty}
                             onChange={handleBasicInfoChange}
                             onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            autoFocus={false}
+                            tabIndex={-1}
                             style={{
                               width: '100%',
                               padding: '12px 16px',
@@ -597,6 +626,9 @@ const CourseCreator = () => {
                             value={basicInfo.language}
                             onChange={handleBasicInfoChange}
                             onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            autoFocus={false}
+                            tabIndex={-1}
                             style={{
                               width: '100%',
                               padding: '12px 16px',
@@ -803,6 +835,9 @@ const CourseCreator = () => {
                                       value={resource.type}
                                       onChange={(e) => handleResourceChange(e, module.id, resource.id, 'type')}
                                       onClick={(e) => e.stopPropagation()}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      autoFocus={false}
+                                      tabIndex={-1}
                                       style={{
                                         width: '100%',
                                         padding: '8px 12px',
@@ -1176,6 +1211,9 @@ const CourseCreator = () => {
                                       value={assignment.submissionType}
                                       onChange={(e) => handleAssignmentChange(e, module.id, assignment.id, 'submissionType')}
                                       onClick={(e) => e.stopPropagation()}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                      autoFocus={false}
+                                      tabIndex={-1}
                                       style={{
                                         width: '100%',
                                         padding: '8px 12px',
@@ -1375,6 +1413,9 @@ const CourseCreator = () => {
                               setLearningConfig(prev => ({ ...prev, unlockRules: e.target.value }));
                             }}
                             onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            autoFocus={false}
+                            tabIndex={-1}
                             style={{
                               width: '100%',
                               padding: '12px 16px',
@@ -1399,6 +1440,9 @@ const CourseCreator = () => {
                               setLearningConfig(prev => ({ ...prev, reminderSchedule: e.target.value }));
                             }}
                             onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            autoFocus={false}
+                            tabIndex={-1}
                             style={{
                               width: '100%',
                               padding: '12px 16px',
@@ -1424,6 +1468,9 @@ const CourseCreator = () => {
                               setLearningConfig(prev => ({ ...prev, moduleWeightage: e.target.value }));
                             }}
                             onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            autoFocus={false}
+                            tabIndex={-1}
                             style={{
                               width: '100%',
                               padding: '12px 16px',
@@ -1524,6 +1571,9 @@ const CourseCreator = () => {
                                 value={topic.type}
                                 onChange={(e) => handleDiscussionTopicChange(e, topic.id, 'type')}
                                 onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                autoFocus={false}
+                                tabIndex={-1}
                                 style={{
                                   width: '100%',
                                   padding: '8px 12px',

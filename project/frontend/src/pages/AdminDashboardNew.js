@@ -14,6 +14,9 @@ const AdminDashboard = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterInstructor, setFilterInstructor] = useState('');
+  const [sortBy, setSortBy] = useState('');
   const [formData, setFormData] = useState({
     title: '',
     code: '',
@@ -32,24 +35,30 @@ const AdminDashboard = () => {
 
   const fetchCourses = async () => {
     try {
-      const response = await axios.get('/api/courses', {
+      const response = await axios.get('http://localhost:5000/api/courses', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      setCourses(Array.isArray(response.data) ? response.data : []);
+      console.log('Courses fetched successfully:', response.data);
+      // Handle both array and object response formats
+      const coursesData = response.data.courses || response.data;
+      setCourses(Array.isArray(coursesData) ? coursesData : []);
     } catch (error) {
       console.error('Error fetching courses:', error);
+      console.error('Error response:', error.response);
       setCourses([]);
     }
   };
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get('/api/admin/dashboard', {
+      const response = await axios.get('http://localhost:5000/api/admin/dashboard', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
+      console.log('Stats fetched successfully:', response.data);
       setStats(response.data);
     } catch (error) {
       console.error('Error fetching stats:', error);
+      console.error('Error response:', error.response);
     }
   };
 
@@ -97,14 +106,16 @@ const AdminDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       if (editingCourse) {
-        await axios.put(`/api/courses/${editingCourse._id}`, formData, {
+        const response = await axios.put(`http://localhost:5000/api/courses/${editingCourse._id}`, formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        console.log('Course updated successfully:', response.data);
         setToastMessage('Course updated — students will see the change');
       } else {
-        await axios.post('/api/courses', formData, {
+        const response = await axios.post('http://localhost:5000/api/courses', formData, {
           headers: { Authorization: `Bearer ${token}` }
         });
+        console.log('Course published successfully:', response.data);
         setToastMessage('Course published to student dashboards');
       }
       closeModal();
@@ -112,7 +123,15 @@ const AdminDashboard = () => {
       fetchStats();
     } catch (error) {
       console.error('Error saving course:', error);
-      setToastMessage('Error saving course');
+      console.error('Error response:', error.response);
+      console.error('Error message:', error.message);
+      if (error.response) {
+        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
+      } else if (error.request) {
+        setToastMessage('Error: No response from server. Check if backend is running.');
+      } else {
+        setToastMessage(`Error: ${error.message}`);
+      }
     }
   };
 
@@ -198,15 +217,28 @@ const AdminDashboard = () => {
 
         <div className="search-bar">
           <input type="text" placeholder="Search courses..." />
-          <select className="toolbar-select">
+          <select 
+            className="toolbar-select" 
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
             <option value="">All Status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
-          <select className="toolbar-select">
+          <select 
+            className="toolbar-select" 
+            value={filterInstructor}
+            onChange={(e) => setFilterInstructor(e.target.value)}
+          >
             <option value="">All Instructors</option>
           </select>
-          <select className="toolbar-select">
+          <select 
+            className="toolbar-select" 
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="">Sort By</option>
             <option value="title">Sort by Title</option>
             <option value="code">Sort by Code</option>
             <option value="instructor">Sort by Instructor</option>
