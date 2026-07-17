@@ -23,5 +23,4 @@ const Toast = ({ message, duration = 2200 }) => {
     </div>
   );
 };
-
 export default Toast;
