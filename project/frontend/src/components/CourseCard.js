@@ -1,9 +1,11 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import './CourseCard.css';
+import './CourseCard.css'; 
+
+
 
 const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) => {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
 
   const handleCardClick = () => {
     navigate(`/course/${course._id}`);
