@@ -1,6 +1,10 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from models.course import Course
 from utils.auth import admin_required, token_required
+import json
+import os
+import uuid
+from werkzeug.utils import secure_filename
 
 courses_bp = Blueprint('courses', __name__)
 
@@ -22,7 +26,7 @@ def get_all_courses():
         for course in courses:
             course['_id'] = str(course['_id'])
         
-        return jsonify({'courses': courses}), 200
+        return jsonify(courses), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -47,17 +51,47 @@ def get_course(course_id):
 @admin_required
 def create_course():
     try:
-        data = request.get_json()
-        
-        # Validate required fields
-        required_fields = ['title', 'description', 'instructor', 'category', 'duration', 'difficulty']
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
+            for json_field in ['modules', 'completionCriteria', 'learningConfig', 'discussionTopics']:
+                if json_field in data:
+                    try:
+                        data[json_field] = json.loads(data[json_field])
+                    except Exception:
+                        pass
+            
+            if 'thumbnail' in request.files:
+                file = request.files['thumbnail']
+                if file and file.filename != '':
+                    upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
+                    os.makedirs(upload_folder, exist_ok=True)
+                    filename = secure_filename(file.filename)
+                    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
+                    new_filename = f"{uuid.uuid4().hex}.{ext}"
+                    file.save(os.path.join(upload_folder, new_filename))
+                    data['thumbnail'] = f"/static/uploads/{new_filename}"
+
+        if 'code' not in data or not data['code']:
+            import random
+            category = data.get('category', 'CS')
+            prefix = ''.join([w[0] for w in category.split() if w]).upper()
+            if not prefix:
+                prefix = 'CS'
+            data['code'] = f"{prefix}-{random.randint(100, 999)}"
+
+        required_fields = ['title', 'description', 'instructor', 'category', 'duration', 'difficulty', 'code']
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'{field} is required'}), 400
         
-        # Validate difficulty level
         if data['difficulty'] not in ['Beginner', 'Intermediate', 'Advanced']:
             return jsonify({'error': 'Invalid difficulty level. Must be Beginner, Intermediate, or Advanced'}), 400
+            
+        if 'is_active' in data:
+            if isinstance(data['is_active'], str):
+                data['is_active'] = data['is_active'].lower() == 'true'
         
         course_model = Course()
         course_id = course_model.create_course(data)
@@ -74,17 +108,40 @@ def create_course():
 @admin_required
 def update_course(course_id):
     try:
-        data = request.get_json()
-        
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = request.form.to_dict()
+            for json_field in ['modules', 'completionCriteria', 'learningConfig', 'discussionTopics']:
+                if json_field in data:
+                    try:
+                        data[json_field] = json.loads(data[json_field])
+                    except Exception:
+                        pass
+            
+            if 'thumbnail' in request.files:
+                file = request.files['thumbnail']
+                if file and file.filename != '':
+                    upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
+                    os.makedirs(upload_folder, exist_ok=True)
+                    filename = secure_filename(file.filename)
+                    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
+                    new_filename = f"{uuid.uuid4().hex}.{ext}"
+                    file.save(os.path.join(upload_folder, new_filename))
+                    data['thumbnail'] = f"/static/uploads/{new_filename}"
+
         course_model = Course()
         course = course_model.find_by_id(course_id)
         
         if not course:
             return jsonify({'error': 'Course not found'}), 404
         
-        # Validate difficulty if provided
         if 'difficulty' in data and data['difficulty'] not in ['Beginner', 'Intermediate', 'Advanced']:
             return jsonify({'error': 'Invalid difficulty level. Must be Beginner, Intermediate, or Advanced'}), 400
+            
+        if 'is_active' in data:
+            if isinstance(data['is_active'], str):
+                data['is_active'] = data['is_active'].lower() == 'true'
         
         updated = course_model.update_course(course_id, data)
         

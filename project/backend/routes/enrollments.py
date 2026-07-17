@@ -67,14 +67,11 @@ def get_my_enrollments():
             if course:
                 course['_id'] = str(course['_id'])
                 enrollment['_id'] = str(enrollment['_id'])
-                enrollment['course_id'] = str(enrollment['course_id'])
+                enrollment['course_id'] = course  # Nest full course dict in 'course_id' field instead of string
                 enrollment['student_id'] = str(enrollment['student_id'])
-                my_courses.append({
-                    'enrollment': enrollment,
-                    'course': course
-                })
+                my_courses.append(enrollment)
         
-        return jsonify({'enrollments': my_courses}), 200
+        return jsonify(my_courses), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500

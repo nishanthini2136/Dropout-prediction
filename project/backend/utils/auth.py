@@ -66,29 +66,19 @@ def token_required(f):
     return decorated
 
 def admin_required(f):
+    @token_required
     @wraps(f)
     def decorated(*args, **kwargs):
-        token_required_result = token_required(f)
-        if hasattr(token_required_result, '__call__'):
-            return token_required_result(*args, **kwargs)
-        
-        if request.current_user_role != 'admin':
+        if getattr(request, 'current_user_role', None) != 'admin':
             return jsonify({'error': 'Admin access required'}), 403
-        
         return f(*args, **kwargs)
-    
     return decorated
 
 def student_required(f):
+    @token_required
     @wraps(f)
     def decorated(*args, **kwargs):
-        token_required_result = token_required(f)
-        if hasattr(token_required_result, '__call__'):
-            return token_required_result(*args, **kwargs)
-        
-        if request.current_user_role != 'student':
+        if getattr(request, 'current_user_role', None) != 'student':
             return jsonify({'error': 'Student access required'}), 403
-        
         return f(*args, **kwargs)
-    
     return decorated

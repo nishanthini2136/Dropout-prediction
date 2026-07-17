@@ -9,7 +9,11 @@ class Course:
     def create_course(self, course_data):
         course_data['created_at'] = datetime.utcnow()
         course_data['updated_at'] = datetime.utcnow()
-        course_data['is_active'] = True
+        if 'is_active' in course_data:
+            if isinstance(course_data['is_active'], str):
+                course_data['is_active'] = course_data['is_active'].lower() == 'true'
+        else:
+            course_data['is_active'] = True
         result = self.collection.insert_one(course_data)
         return str(result.inserted_id)
     
