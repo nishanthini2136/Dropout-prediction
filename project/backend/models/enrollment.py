@@ -40,3 +40,38 @@ class Enrollment:
     def unenroll_student(self, enrollment_id):
         result = self.collection.delete_one({'_id': ObjectId(enrollment_id)})
         return result.deleted_count > 0
+
+    def update_lesson_progress(self, enrollment_id, module_id, lesson_id, completed, total_lessons_count):
+        # Store completed lessons as strings "module_id:lesson_id" in a list
+        lesson_key = f"{module_id}:{lesson_id}"
+        
+        enrollment = self.collection.find_one({'_id': ObjectId(enrollment_id)})
+        if not enrollment:
+            return False
+            
+        completed_lessons = enrollment.get('completed_lessons', [])
+        
+        if completed:
+            if lesson_key not in completed_lessons:
+                completed_lessons.append(lesson_key)
+        else:
+            if lesson_key in completed_lessons:
+                completed_lessons.remove(lesson_key)
+                
+        # Recalculate progress percentage
+        progress = 0
+        if total_lessons_count > 0:
+            progress = int((len(completed_lessons) / total_lessons_count) * 100)
+            progress = min(max(progress, 0), 100)
+            
+        result = self.collection.update_one(
+            {'_id': ObjectId(enrollment_id)},
+            {
+                '$set': {
+                    'completed_lessons': completed_lessons,
+                    'progress': progress,
+                    'updated_at': datetime.utcnow()
+                }
+            }
+        )
+        return True

@@ -99,6 +99,50 @@ def update_progress(enrollment_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@enrollments_bp.route('/api/enrollments/<enrollment_id>/lesson-progress', methods=['PUT'])
+@student_required
+def update_lesson_progress(enrollment_id):
+    try:
+        data = request.get_json()
+        
+        required_fields = ['module_id', 'lesson_id', 'completed']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'{field} is required'}), 400
+                
+        enrollment_model = Enrollment()
+        course_model = Course()
+        
+        enrollment = enrollment_model.collection.find_one({'_id': ObjectId(enrollment_id)})
+        if not enrollment:
+            return jsonify({'error': 'Enrollment not found'}), 404
+            
+        course = course_model.find_by_id(enrollment['course_id'])
+        if not course:
+            return jsonify({'error': 'Course not found'}), 404
+            
+        total_lessons = 0
+        modules = course.get('modules', [])
+        for m in modules:
+            lessons = m.get('lessons') or m.get('resources') or []
+            total_lessons += len(lessons)
+            
+        success = enrollment_model.update_lesson_progress(
+            enrollment_id,
+            data['module_id'],
+            data['lesson_id'],
+            data['completed'],
+            total_lessons
+        )
+        
+        if success:
+            return jsonify({'message': 'Lesson progress updated successfully'}), 200
+        else:
+            return jsonify({'error': 'Failed to update lesson progress'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @enrollments_bp.route('/api/enrollments/<enrollment_id>', methods=['DELETE'])
 @student_required
 def unenroll(enrollment_id):

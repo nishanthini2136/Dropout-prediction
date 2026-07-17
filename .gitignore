@@ -78,3 +78,6 @@ instance/
 
 # React
 .cache/
+
+project/Dataset/
+*.csv

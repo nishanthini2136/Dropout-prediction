@@ -51,10 +51,12 @@ const CourseDetails = () => {
       if (enrolled) {
         setIsEnrolled(true);
         setEnrollment(enrolled);
-        if (enrolled.modules && enrolled.modules.length > 0) {
-          setActiveModule(enrolled.modules[0]);
-          if (enrolled.modules[0].lessons && enrolled.modules[0].lessons.length > 0) {
-            setActiveLesson(enrolled.modules[0].lessons[0]);
+        const courseObj = enrolled.course_id || course;
+        if (courseObj && courseObj.modules && courseObj.modules.length > 0) {
+          setActiveModule(courseObj.modules[0]);
+          const firstModuleLessons = courseObj.modules[0].lessons || courseObj.modules[0].resources || [];
+          if (firstModuleLessons.length > 0) {
+            setActiveLesson(firstModuleLessons[0]);
           }
         }
       }
@@ -102,6 +104,28 @@ const CourseDetails = () => {
       console.error('Error updating lesson progress:', error);
       setToastMessage('Error updating progress');
     }
+  };
+
+  const getEmbedUrl = (url) => {
+    if (!url) return '';
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      let videoId = '';
+      try {
+        if (url.includes('youtube.com/watch')) {
+          const urlParams = new URLSearchParams(new URL(url).search);
+          videoId = urlParams.get('v');
+        } else if (url.includes('youtu.be/')) {
+          videoId = url.split('youtu.be/')[1]?.split('?')[0];
+        } else if (url.includes('youtube.com/embed/')) {
+          videoId = url.split('youtube.com/embed/')[1]?.split('?')[0];
+        }
+      } catch (e) {
+        const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+        videoId = match ? match[1] : '';
+      }
+      return videoId ? `https://www.youtube.com/embed/${videoId}` : url;
+    }
+    return url;
   };
 
   const getInitials = (name) => {
@@ -360,7 +384,7 @@ const CourseDetails = () => {
                         {module.title}
                       </div>
                       <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                        {module.lessons.length} lessons
+                        {(module.lessons || module.resources || []).length} lessons
                       </div>
                     </div>
                   ))}
