@@ -108,7 +108,7 @@ const StudentDashboard = () => {
 
   const handleUpdateProgress = async (enrollmentId, progress) => {
     try {
-      await axios.put(`/api/enrollments/${enrollmentId}/progress`, { progress }, {
+      await axios.put(`http://localhost:5000/api/enrollments/${enrollmentId}/progress`, { progress }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       fetchEnrolledCourses();
@@ -174,18 +174,21 @@ const StudentDashboard = () => {
                   <span className="seats-tag">{enrollment.progress}% complete</span>
                 </div>
                 <div className="progress-section">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={enrollment.progress}
-                    onChange={(e) => handleUpdateProgress(enrollment._id, parseInt(e.target.value))}
-                    className="progress-slider"
-                  />
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${enrollment.progress}%` }}
+                    />
+                  </div>
+                  <div className="progress-text">{enrollment.progress}% complete</div>
                 </div>
                 <div className="actions">
-                  <button className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={() => handleDrop(enrollment._id)}>
-                    Drop Course
+                  <button
+                    className="btn btn-gold btn-sm"
+                    style={{ width: '100%' }}
+                    onClick={() => navigate(`/course/${enrollment.course_id._id}`)}
+                  >
+                    Continue Learning
                   </button>
                 </div>
               </div>

@@ -17,17 +17,94 @@ const CourseDetails = () => {
   const [enrollment, setEnrollment] = useState(null);
   const [activeModule, setActiveModule] = useState(null);
   const [activeLesson, setActiveLesson] = useState(null);
+  // Helper to check if a lesson is completed based on enrollment data
+  const isLessonCompleted = (moduleId, lessonId) => {
+    const key = `${moduleId}:${lessonId}`;
+    return (enrollment?.completed_lessons || []).includes(key);
+  };
+  const [showVideoPlayer, setShowVideoPlayer] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [player, setPlayer] = useState(null);
+  const [videoEnded, setVideoEnded] = useState(false);
 
   useEffect(() => {
     fetchCourseDetails();
   }, [id]);
 
+  // Load YouTube IFrame API
+  useEffect(() => {
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    }
+  }, []);
+
+  // Initialize player when video modal opens
+  useEffect(() => {
+    let playerInstance = null;
+
+    const createPlayer = (videoId) => {
+      try {
+        playerInstance = new window.YT.Player('youtube-player', {
+          videoId: videoId,
+          playerVars: {
+            autoplay: 1,
+            modestbranding: 1,
+            rel: 0
+          },
+          events: {
+            'onReady': (event) => {
+              console.log('YouTube player ready');
+              setPlayer(event.target);
+            },
+            'onStateChange': (event) => {
+              if (event.data === window.YT.PlayerState.ENDED) {
+                console.log('Video ended, marking as complete');
+                handleVideoComplete();
+              }
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Error creating YouTube player:', err);
+      }
+    };
+
+    if (showVideoPlayer && activeLesson?.type === 'video') {
+      const videoId = getYouTubeVideoId(activeLesson.url);
+      console.log('Initializing YouTube player with video ID:', videoId);
+      if (videoId) {
+        // Check if YT API is fully ready
+        if (window.YT && window.YT.Player) {
+          createPlayer(videoId);
+        } else {
+          // Wait for the API to load
+          window.onYouTubeIframeAPIReady = () => {
+            createPlayer(videoId);
+          };
+        }
+      }
+    }
+
+    return () => {
+      if (playerInstance) {
+        try {
+          playerInstance.destroy();
+        } catch (e) {
+          console.log('Player already destroyed');
+        }
+        setPlayer(null);
+      }
+    };
+  }, [showVideoPlayer, activeLesson]);
+
   const fetchCourseDetails = async () => {
     try {
-      const response = await axios.get(`/api/courses/${id}`);
+      const response = await axios.get(`http://localhost:5000/api/courses/${id}`);
       setCourse(response.data.course);
-      
+
       // Check if user is enrolled
       if (user?.role === 'student') {
         await checkEnrollment();
@@ -42,7 +119,7 @@ const CourseDetails = () => {
 
   const checkEnrollment = async () => {
     try {
-      const response = await axios.get('/api/enrollments/my-courses', {
+      const response = await axios.get('http://localhost:5000/api/enrollments/my-courses', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       const enrolled = response.data.find(
@@ -75,7 +152,7 @@ const CourseDetails = () => {
     setError('');
 
     try {
-      await axios.post('/api/enrollments', { course_id: id }, {
+      await axios.post('http://localhost:5000/api/enrollments', { course_id: id }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setIsEnrolled(true);
@@ -91,7 +168,7 @@ const CourseDetails = () => {
 
   const handleLessonComplete = async (moduleId, lessonId) => {
     try {
-      await axios.put(`/api/enrollments/${enrollment._id}/lesson-progress`, {
+      await axios.put(`http://localhost:5000/api/enrollments/${enrollment._id}/lesson-progress`, {
         module_id: moduleId,
         lesson_id: lessonId,
         completed: true
@@ -99,12 +176,42 @@ const CourseDetails = () => {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setToastMessage('Lesson marked as complete');
+      // Backend already recalculates progress, just refresh enrollment data
       await checkEnrollment();
     } catch (error) {
       console.error('Error updating lesson progress:', error);
       setToastMessage('Error updating progress');
     }
   };
+
+  const getYouTubeVideoId = (url) => {
+    if (!url) return '';
+    try {
+      if (url.includes('youtube.com/watch')) {
+        const urlParams = new URLSearchParams(new URL(url).search);
+        return urlParams.get('v');
+      } else if (url.includes('youtu.be/')) {
+        return url.split('youtu.be/')[1]?.split('?')[0];
+      } else if (url.includes('youtube.com/embed/')) {
+        return url.split('youtube.com/embed/')[1]?.split('?')[0];
+      }
+      const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+      return match ? match[1] : '';
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const handleVideoComplete = async () => {
+    if (activeLesson && activeModule) {
+      console.log('handleVideoComplete called for lesson:', activeLesson.id, 'in module:', activeModule.id);
+      setVideoEnded(true);
+      setToastMessage('Video completed! Progress updated automatically.');
+      await handleLessonComplete(activeModule.id, activeLesson.id);
+    }
+  };
+
+  // Progress is now calculated server-side in update_lesson_progress endpoint
 
   const getEmbedUrl = (url) => {
     if (!url) return '';
@@ -154,7 +261,7 @@ const CourseDetails = () => {
     );
   }
 
-  const modules = course.modules || [
+  const modules = course?.modules || [
     {
       id: 1,
       title: 'Introduction',
@@ -174,7 +281,7 @@ const CourseDetails = () => {
     }
   ];
 
-  const studyMaterials = course.studyMaterials || [
+  const studyMaterials = course?.studyMaterials || [
     { id: 1, title: 'Course Syllabus', type: 'pdf', url: '#' },
     { id: 2, title: 'Reference Materials', type: 'pdf', url: '#' },
     { id: 3, title: 'Practice Exercises', type: 'pdf', url: '#' }
@@ -403,18 +510,17 @@ const CourseDetails = () => {
                     <h3 style={{ fontSize: '20px', fontWeight: '600', color: '#111827', marginBottom: '24px' }}>
                       {activeModule.title}
                     </h3>
-                    
-                    {activeModule.lessons.map((lesson, index) => {
-                      const isCompleted = enrollment?.modules
-                        ?.find(m => m.id === activeModule.id)
-                        ?.lessons?.find(l => l.id === lesson.id)?.completed;
-                      
+
+                    {(activeModule.lessons || activeModule.resources || []).map((lesson, index) => {
+    const isCompleted = isLessonCompleted(activeModule.id, lesson.id);
+
+
                       return (
                         <div
                           key={lesson.id}
                           style={{
                             padding: '20px',
-                            marginBottom: index < activeModule.lessons.length - 1 ? '16px' : '0',
+                            marginBottom: index < (activeModule.lessons || activeModule.resources || []).length - 1 ? '16px' : '0',
                             backgroundColor: '#F8FAFC',
                             borderRadius: '12px',
                             border: '1px solid #E5E7EB'
@@ -461,19 +567,14 @@ const CourseDetails = () => {
                           
                           <div style={{ display: 'flex', gap: '12px' }}>
                             <button
-                              className="btn btn-ghost btn-sm"
-                              onClick={() => setActiveLesson(lesson)}
+                              className="btn btn-gold btn-sm"
+                              onClick={() => {
+                                setActiveLesson(lesson);
+                                setShowVideoPlayer(true);
+                              }}
                             >
                               {lesson.type === 'video' ? 'Watch Video' : 'View PDF'}
                             </button>
-                            {!isCompleted && (
-                              <button
-                                className="btn btn-gold btn-sm"
-                                onClick={() => handleLessonComplete(activeModule.id, lesson.id)}
-                              >
-                                Mark Complete
-                              </button>
-                            )}
                           </div>
                         </div>
                       );
@@ -549,6 +650,130 @@ const CourseDetails = () => {
               </div>
             </div>
           </>
+        )}
+
+        {/* Video Player Modal */}
+        {showVideoPlayer && activeLesson && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '16px',
+              maxWidth: '900px',
+              width: '90%',
+              maxHeight: '90vh',
+              overflow: 'auto'
+            }}>
+              <div style={{
+                padding: '20px 24px',
+                borderBottom: '1px solid #E5E7EB',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                  {activeLesson.title}
+                </h3>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowVideoPlayer(false)}
+                  style={{ padding: '8px 16px' }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{ padding: '24px' }}>
+                {activeLesson.type === 'video' ? (
+                  <div style={{
+                    position: 'relative',
+                    paddingBottom: '56.25%',
+                    height: 0,
+                    overflow: 'hidden',
+                    borderRadius: '8px',
+                    backgroundColor: '#000'
+                  }}>
+                    {getYouTubeVideoId(activeLesson.url) ? (
+                      <>
+                        <div id="youtube-player" style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%'
+                        }} />
+                        {/* Iframe fallback in case YT API doesn't load */}
+                        {!player && (
+                          <iframe
+                            src={`https://www.youtube.com/embed/${getYouTubeVideoId(activeLesson.url)}?autoplay=1&rel=0`}
+                            title={activeLesson.title}
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              width: '100%',
+                              height: '100%',
+                              border: 'none'
+                            }}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        )}
+                      </>
+                    ) : (
+                      <iframe
+                        src={activeLesson.url}
+                        title={activeLesson.title}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: '100%',
+                          border: 'none'
+                        }}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <div style={{
+                    textAlign: 'center',
+                    padding: '40px',
+                    backgroundColor: '#F8FAFC',
+                    borderRadius: '8px'
+                  }}>
+                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>📄</div>
+                    <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}>
+                      {activeLesson.title}
+                    </h4>
+                    <p style={{ color: '#6B7280', marginBottom: '16px' }}>
+                      PDF Document
+                    </p>
+                    <a
+                      href={activeLesson.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-gold"
+                      style={{ display: 'inline-block', textDecoration: 'none' }}
+                    >
+                      Open PDF
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
 
         <footer className="dash-footer">E-LEARNING MANAGEMENT SYSTEM — STUDENT PORTAL</footer>
