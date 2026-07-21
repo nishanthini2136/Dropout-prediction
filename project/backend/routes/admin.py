@@ -10,17 +10,40 @@ admin_bp = Blueprint('admin', __name__)
 @admin_required
 def get_dashboard_stats():
     try:
+        print("Fetching dashboard stats...")
         user_model = User()
         course_model = Course()
         enrollment_model = Enrollment()
-        
+
+        # Get total courses
+        total_courses = course_model.get_course_count()
+        print(f"Total courses: {total_courses}")
+
+        # Get total students
+        total_students = user_model.get_student_count()
+        print(f"Total students: {total_students}")
+
+        # Get total enrollments
+        total_enrollments = enrollment_model.get_enrollment_count()
+        print(f"Total enrollments: {total_enrollments}")
+
+        # Calculate seats remaining
+        # Assuming each course has a capacity field, calculate total capacity minus enrollments
+        courses = course_model.get_all_courses(active_only=True)
+        total_capacity = sum(course.get('capacity', 30) for course in courses)  # Default capacity of 30 if not specified
+        seats_remaining = max(0, total_capacity - total_enrollments)
+        print(f"Total capacity: {total_capacity}, Seats remaining: {seats_remaining}")
+
         stats = {
-            'total_courses': course_model.get_course_count(),
-            'total_students': user_model.get_student_count(),
-            'total_enrollments': enrollment_model.get_enrollment_count()
+            'total_courses': total_courses,
+            'total_students': total_students,
+            'total_enrollments': total_enrollments,
+            'seats_remaining': seats_remaining
         }
-        
-        return jsonify({'stats': stats}), 200
-        
+
+        print(f"Final stats: {stats}")
+        return jsonify(stats), 200
+
     except Exception as e:
+        print(f"Error fetching dashboard stats: {str(e)}")
         return jsonify({'error': str(e)}), 500

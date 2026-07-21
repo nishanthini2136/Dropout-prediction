@@ -27,10 +27,19 @@ const AdminDashboard = () => {
     difficulty: 'Beginner',
     thumbnail: ''
   });
+  const [formErrors, setFormErrors] = useState({});
 
   useEffect(() => {
     fetchCourses();
     fetchStats();
+
+    // Set up polling for real-time stats updates
+    const interval = setInterval(() => {
+      fetchStats();
+      fetchCourses();
+    }, 30000); // Poll every 30 seconds
+
+    return () => clearInterval(interval);
   }, []);
 
   const fetchCourses = async () => {
@@ -51,14 +60,30 @@ const AdminDashboard = () => {
 
   const fetchStats = async () => {
     try {
+      console.log('Fetching stats from backend...');
       const response = await axios.get('http://localhost:5000/api/admin/dashboard', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      console.log('Stats fetched successfully:', response.data);
-      setStats(response.data);
+      console.log('Stats response received:', response.data);
+      console.log('Response status:', response.status);
+
+      // Handle both response formats (with or without 'stats' wrapper)
+      const statsData = response.data.stats || response.data;
+      console.log('Parsed stats data:', statsData);
+
+      // Map backend field names to frontend expectations
+      const mappedStats = {
+        totalCourses: statsData.total_courses || 0,
+        totalEnrollments: statsData.total_enrollments || 0,
+        totalStudents: statsData.total_students || 0,
+        seatsRemaining: statsData.seats_remaining || 0
+      };
+      console.log('Mapped stats for frontend:', mappedStats);
+      setStats(mappedStats);
     } catch (error) {
       console.error('Error fetching stats:', error);
       console.error('Error response:', error.response);
+      console.error('Error message:', error.message);
     }
   };
 
@@ -99,10 +124,53 @@ const AdminDashboard = () => {
   const closeModal = () => {
     setModalOpen(false);
     setEditingCourse(null);
+    setFormErrors({});
+  };
+
+  const validateForm = () => {
+    console.log('Validating form with data:', formData);
+    const errors = {};
+
+    if (!formData.title || !formData.title.trim()) {
+      errors.title = 'Course title is required';
+      console.log('Title validation failed');
+    }
+    if (!formData.code || !formData.code.trim()) {
+      errors.code = 'Course code is required';
+      console.log('Code validation failed');
+    }
+    if (!formData.instructor || !formData.instructor.trim()) {
+      errors.instructor = 'Instructor name is required';
+      console.log('Instructor validation failed');
+    }
+    if (!formData.description || !formData.description.trim()) {
+      errors.description = 'Course description is required';
+      console.log('Description validation failed');
+    }
+    if (!formData.duration || !formData.duration.trim()) {
+      errors.duration = 'Course duration is required';
+      console.log('Duration validation failed');
+    }
+
+    console.log('Validation errors:', errors);
+    setFormErrors(errors);
+    const isValid = Object.keys(errors).length === 0;
+    console.log('Form is valid:', isValid);
+    return isValid;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('Form submitted');
+
+    // Validate form before submission
+    if (!validateForm()) {
+      console.log('Validation failed, preventing submission');
+      setToastMessage('Please fill in all required fields');
+      return;
+    }
+
+    console.log('Validation passed, proceeding with submission');
     try {
       const token = localStorage.getItem('token');
       if (editingCourse) {
@@ -138,7 +206,7 @@ const AdminDashboard = () => {
   const handleDelete = async (courseId) => {
     if (window.confirm('Are you sure you want to delete this course?')) {
       try {
-        await axios.delete(`/api/courses/${courseId}`, {
+        await axios.delete(`http://localhost:5000/api/courses/${courseId}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
         setToastMessage('Course removed from the catalog');
@@ -314,19 +382,33 @@ const AdminDashboard = () => {
         actions={
           <>
             <button type="button" className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-            <button type="submit" form="course-form" className="btn btn-gold">Save Course</button>
+            <button type="button" className="btn btn-gold" onClick={handleSubmit}>Save Course</button>
           </>
         }
       >
-        <form id="course-form" onSubmit={handleSubmit}>
+        <form id="course-form" onSubmit={(e) => e.preventDefault()}>
           <div className="field">
             <label>Course title</label>
-            <input name="title" placeholder="e.g. Introduction to Data Structures" value={formData.title} onChange={handleChange} required />
+            <input
+              name="title"
+              placeholder="e.g. Introduction to Data Structures"
+              value={formData.title}
+              onChange={handleChange}
+              style={{ borderColor: formErrors.title ? '#EF4444' : '#E5E7EB' }}
+            />
+            {formErrors.title && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.title}</div>}
           </div>
           <div className="grid-2">
             <div className="field">
               <label>Course code</label>
-              <input name="code" placeholder="e.g. CS-201" value={formData.code} onChange={handleChange} required />
+              <input
+                name="code"
+                placeholder="e.g. CS-201"
+                value={formData.code}
+                onChange={handleChange}
+                style={{ borderColor: formErrors.code ? '#EF4444' : '#E5E7EB' }}
+              />
+              {formErrors.code && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.code}</div>}
             </div>
             <div className="field">
               <label>Category</label>
@@ -341,16 +423,38 @@ const AdminDashboard = () => {
           </div>
           <div className="field">
             <label>Instructor</label>
-            <input name="instructor" placeholder="e.g. Dr. Lena Ortiz" value={formData.instructor} onChange={handleChange} required />
+            <input
+              name="instructor"
+              placeholder="e.g. Dr. Lena Ortiz"
+              value={formData.instructor}
+              onChange={handleChange}
+              style={{ borderColor: formErrors.instructor ? '#EF4444' : '#E5E7EB' }}
+            />
+            {formErrors.instructor && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.instructor}</div>}
           </div>
           <div className="field">
             <label>Short description</label>
-            <textarea name="description" rows="3" placeholder="One or two sentences about the course" value={formData.description} onChange={handleChange} required />
+            <textarea
+              name="description"
+              rows="3"
+              placeholder="One or two sentences about the course"
+              value={formData.description}
+              onChange={handleChange}
+              style={{ borderColor: formErrors.description ? '#EF4444' : '#E5E7EB' }}
+            />
+            {formErrors.description && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.description}</div>}
           </div>
           <div className="grid-2">
             <div className="field">
               <label>Duration</label>
-              <input name="duration" placeholder="e.g. 8 weeks" value={formData.duration} onChange={handleChange} required />
+              <input
+                name="duration"
+                placeholder="e.g. 8 weeks"
+                value={formData.duration}
+                onChange={handleChange}
+                style={{ borderColor: formErrors.duration ? '#EF4444' : '#E5E7EB' }}
+              />
+              {formErrors.duration && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.duration}</div>}
             </div>
             <div className="field">
               <label>Difficulty</label>

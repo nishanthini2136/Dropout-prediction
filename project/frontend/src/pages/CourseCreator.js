@@ -373,6 +373,30 @@ const CourseCreator = () => {
   };
 
   const handlePublish = async () => {
+    // Validate required fields before publishing
+    const errors = {};
+    if (!basicInfo.title || !basicInfo.title.trim()) {
+      errors.title = 'Course title is required';
+    }
+    if (!basicInfo.description || !basicInfo.description.trim()) {
+      errors.description = 'Course description is required';
+    }
+    if (!basicInfo.category || !basicInfo.category.trim()) {
+      errors.category = 'Category is required';
+    }
+    if (!basicInfo.instructor || !basicInfo.instructor.trim()) {
+      errors.instructor = 'Instructor name is required';
+    }
+    if (!basicInfo.duration || !basicInfo.duration.trim()) {
+      errors.duration = 'Course duration is required';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      const errorMessage = Object.values(errors).join(', ');
+      setToastMessage(`Please fill in required fields: ${errorMessage}`);
+      return;
+    }
+
     setSaving(true);
     try {
       const formData = new FormData();
