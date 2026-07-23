@@ -33,13 +33,30 @@ const AdminDashboard = () => {
     fetchCourses();
     fetchStats();
 
-    // Set up polling for real-time stats updates
+    // Set up real-time stats updates via Server-Sent Events (SSE)
+    const token = localStorage.getItem('token');
+    const eventSource = new EventSource(`http://localhost:5000/api/admin/dashboard/events?token=${token}`);
+
+    eventSource.onmessage = (event) => {
+      console.log('Real-time stats update received via SSE:', event.data);
+      fetchStats();
+      fetchCourses();
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE connection error:', error);
+    };
+
+    // Set up polling as a fallback for robustness
     const interval = setInterval(() => {
       fetchStats();
       fetchCourses();
     }, 30000); // Poll every 30 seconds
 
-    return () => clearInterval(interval);
+    return () => {
+      eventSource.close();
+      clearInterval(interval);
+    };
   }, []);
 
   const fetchCourses = async () => {
@@ -443,6 +460,15 @@ const AdminDashboard = () => {
               style={{ borderColor: formErrors.description ? '#EF4444' : '#E5E7EB' }}
             />
             {formErrors.description && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.description}</div>}
+          </div>
+          <div className="field">
+            <label>Thumbnail Image URL</label>
+            <input
+              name="thumbnail"
+              placeholder="e.g. /static/uploads/image.png or a web image URL"
+              value={formData.thumbnail}
+              onChange={handleChange}
+            />
           </div>
           <div className="grid-2">
             <div className="field">

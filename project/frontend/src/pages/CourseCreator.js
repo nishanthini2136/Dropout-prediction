@@ -519,7 +519,7 @@ const CourseCreator = () => {
               </div>
 
               {activeSection === section.id && (
-                <div style={{ padding: '0 24px 24px', borderTop: '1px solid #E5E7EB' }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ padding: '0 24px 24px', borderTop: '1px solid #E5E7EB' }}>
                   {section.id === 'basic' && (
                     <div style={{ paddingTop: '24px' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>

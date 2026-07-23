@@ -13,6 +13,7 @@ const StudentDashboard = () => {
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState('');
+  const fallbackImage = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop';
 
   useEffect(() => {
     fetchCourses();
@@ -164,8 +165,18 @@ const StudentDashboard = () => {
             </div>
           ) : (
             enrolledCourses.map(enrollment => (
-              <div key={enrollment._id} className="course-card">
+              <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer' }}>
                 <div className="badge-enrolled">Enrolled</div>
+                <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }} onClick={(e) => e.stopPropagation()}>
+                  <img
+                    src={enrollment.course_id.thumbnail || fallbackImage}
+                    alt={enrollment.course_id.title}
+                    style={{ height: '100%', width: '100%', objectFit: 'cover' }}
+                    onError={(e) => {
+                      e.target.src = fallbackImage;
+                    }}
+                  />
+                </div>
                 <div className="code">{enrollment.course_id.code} · {enrollment.course_id.category}</div>
                 <h3>{enrollment.course_id.title}</h3>
                 <div className="desc">{enrollment.course_id.description}</div>
@@ -182,7 +193,7 @@ const StudentDashboard = () => {
                   </div>
                   <div className="progress-text">{enrollment.progress}% complete</div>
                 </div>
-                <div className="actions">
+                <div className="actions" onClick={(e) => e.stopPropagation()}>
                   <button
                     className="btn btn-gold btn-sm"
                     style={{ width: '100%' }}

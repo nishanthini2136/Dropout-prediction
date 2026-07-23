@@ -35,7 +35,7 @@ class Enrollment:
         return result.modified_count > 0
     
     def get_enrollment_count(self):
-        return self.collection.count_documents()
+        return self.collection.count_documents({})
     
     def unenroll_student(self, enrollment_id):
         result = self.collection.delete_one({'_id': ObjectId(enrollment_id)})

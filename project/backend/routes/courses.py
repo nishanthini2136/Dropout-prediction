@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify, current_app
 from models.course import Course
 from utils.auth import admin_required, token_required
+from utils.notifier import stats_notifier
 import json
 import os
 import uuid
@@ -96,6 +97,9 @@ def create_course():
         course_model = Course()
         course_id = course_model.create_course(data)
         
+        # Notify stats listeners of course change
+        stats_notifier.notify()
+        
         return jsonify({
             'message': 'Course created successfully',
             'course_id': course_id
@@ -146,6 +150,7 @@ def update_course(course_id):
         updated = course_model.update_course(course_id, data)
         
         if updated:
+            stats_notifier.notify()
             return jsonify({'message': 'Course updated successfully'}), 200
         else:
             return jsonify({'error': 'Failed to update course'}), 500
@@ -166,6 +171,7 @@ def delete_course(course_id):
         deleted = course_model.delete_course(course_id)
         
         if deleted:
+            stats_notifier.notify()
             return jsonify({'message': 'Course deleted successfully'}), 200
         else:
             return jsonify({'error': 'Failed to delete course'}), 500
@@ -187,6 +193,7 @@ def toggle_course_status(course_id):
         updated = course_model.update_course(course_id, {'is_active': new_status})
         
         if updated:
+            stats_notifier.notify()
             return jsonify({
                 'message': f'Course {"activated" if new_status else "deactivated"} successfully',
                 'is_active': new_status

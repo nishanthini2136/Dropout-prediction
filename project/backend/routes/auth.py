@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models.user import User
 from utils.auth import AuthUtils
+from utils.notifier import stats_notifier
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -39,6 +40,10 @@ def register():
         }
         
         user_id = user_model.create_user(user_data)
+        
+        # Notify stats listeners of student registration
+        if data.get('role') == 'student':
+            stats_notifier.notify()
         
         return jsonify({
             'message': 'User registered successfully',

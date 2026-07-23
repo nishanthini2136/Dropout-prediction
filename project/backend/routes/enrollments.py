@@ -3,6 +3,7 @@ from models.enrollment import Enrollment
 from models.course import Course
 from models.user import User
 from utils.auth import token_required, student_required, admin_required
+from utils.notifier import stats_notifier
 from bson import ObjectId
 
 enrollments_bp = Blueprint('enrollments', __name__)
@@ -42,6 +43,9 @@ def enroll_in_course():
         }
         
         enrollment_id = enrollment_model.enroll_student(enrollment_data)
+        
+        # Notify stats listeners of enrollment
+        stats_notifier.notify()
         
         return jsonify({
             'message': 'Enrolled successfully',
@@ -151,6 +155,7 @@ def unenroll(enrollment_id):
         deleted = enrollment_model.unenroll_student(enrollment_id)
         
         if deleted:
+            stats_notifier.notify()
             return jsonify({'message': 'Unenrolled successfully'}), 200
         else:
             return jsonify({'error': 'Failed to unenroll'}), 500

@@ -3,6 +3,7 @@ from models.user import User
 from models.course import Course
 from models.enrollment import Enrollment
 from utils.auth import admin_required
+from utils.notifier import stats_notifier
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -47,3 +48,41 @@ def get_dashboard_stats():
     except Exception as e:
         print(f"Error fetching dashboard stats: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/api/admin/dashboard/events', methods=['GET'])
+def dashboard_events():
+    from flask import request, Response
+    from utils.auth import AuthUtils
+    import queue
+    
+    token = request.args.get('token')
+    if not token:
+        return jsonify({'error': 'Token is missing'}), 401
+        
+    payload = AuthUtils.decode_token(token)
+    if not payload or payload.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized access'}), 401
+        
+    def event_stream():
+        # Yield initial message to confirm connection
+        yield "data: initial\n\n"
+        
+        q = stats_notifier.listen()
+        try:
+            while True:
+                try:
+                    # wait for notification up to 30 seconds
+                    q.get(timeout=30)
+                    yield "data: update\n\n"
+                except queue.Empty:
+                    # keep alive comment
+                    yield ": keep-alive\n\n"
+        except GeneratorExit:
+            stats_notifier.remove_listener(q)
+        finally:
+            stats_notifier.remove_listener(q)
+            
+    response = Response(event_stream(), mimetype='text/event-stream')
+    response.headers['Cache-Control'] = 'no-cache'
+    response.headers['X-Accel-Buffering'] = 'no'
+    return response
