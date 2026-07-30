@@ -7,7 +7,7 @@ import Toast from '../components/Toast';
 
 const CourseDetails = () => {
   const { id } = useParams();
-  const { token, user, logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [course, setCourse] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -28,6 +28,15 @@ const CourseDetails = () => {
   const [videoEnded, setVideoEnded] = useState(false);
   const [quizData, setQuizData] = useState(null);
   const [quizError, setQuizError] = useState('');
+
+
+  const [userAnswers, setUserAnswers] = useState({});
+  const [quizResults, setQuizResults] = useState({});
+  const [completedModuleIds, setCompletedModuleIds] = useState([]);
+  const [unlockedModuleIds, setUnlockedModuleIds] = useState([]);
+  const [autoNavCountdown, setAutoNavCountdown] = useState(0);
+  const [isAutoNavigating, setIsAutoNavigating] = useState(false);
+
 
 
   useEffect(() => {
@@ -120,17 +129,52 @@ const CourseDetails = () => {
     }
   };
 
+  const fetchStudentProgress = async () => {
+    try {
+      const res = await axios.get('http://localhost:5000/api/student/progress', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.data) {
+        const completed = [];
+        Object.keys(res.data).forEach(modId => {
+          if (res.data[modId].quiz_completed) {
+            completed.push(String(modId));
+          }
+        });
+        setCompletedModuleIds(completed);
+      }
+    } catch (e) {
+      console.log('Error fetching student progress:', e);
+    }
+  };
+
+  const isModuleUnlocked = (moduleObj, index) => {
+    if (index === 0) return true;
+    const allMods = course?.modules || [];
+    const prevModule = allMods[index - 1];
+    if (!prevModule) return true;
+    const prevId = String(prevModule._id || prevModule.id);
+    const thisId = String(moduleObj._id || moduleObj.id);
+    return completedModuleIds.includes(prevId) || unlockedModuleIds.includes(thisId);
+  };
+
+  const isModuleCompleted = (moduleObj) => {
+    const modId = String(moduleObj._id || moduleObj.id);
+    return completedModuleIds.includes(modId);
+  };
+
   const checkEnrollment = async () => {
     try {
       const response = await axios.get('http://localhost:5000/api/enrollments/my-courses', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       const enrolled = response.data.find(
-        enrollment => enrollment.course_id._id === id
+        enrollment => (enrollment.course_id?._id === id || enrollment.course_id?.id === id)
       );
       if (enrolled) {
         setIsEnrolled(true);
         setEnrollment(enrolled);
+        await fetchStudentProgress();
         const courseObj = enrolled.course_id || course;
         if (courseObj && courseObj.modules && courseObj.modules.length > 0) {
           setActiveModule(courseObj.modules[0]);
@@ -144,6 +188,7 @@ const CourseDetails = () => {
       console.error('Error checking enrollment:', error);
     }
   };
+
 
   const handleEnroll = async () => {
     if (!user) {
@@ -258,6 +303,157 @@ const CourseDetails = () => {
       }, 400);
     }
   };
+
+  const handleOptionChange = (quizId, qIdx, optionIdx) => {
+    setUserAnswers(prev => ({
+      ...prev,
+      [`${quizId}_q${qIdx}`]: optionIdx
+    }));
+  };
+
+  const getCorrectAnswerIndex = (question) => {
+    if (question.correctAnswer !== undefined && question.correctAnswer !== null) {
+      const val = parseInt(question.correctAnswer, 10);
+      if (!isNaN(val)) return val;
+    }
+    if (question.answer !== undefined && question.answer !== null) {
+      if (typeof question.answer === 'number') return question.answer;
+      if (typeof question.answer === 'string') {
+        const parsed = parseInt(question.answer, 10);
+        if (!isNaN(parsed) && parsed.toString() === question.answer.trim()) {
+          return parsed;
+        }
+        if (question.options) {
+          const idx = question.options.findIndex(opt => opt.trim().toLowerCase() === question.answer.trim().toLowerCase());
+          if (idx !== -1) return idx;
+        }
+      }
+    }
+    if (question.correct_answer !== undefined && question.correct_answer !== null) {
+      if (typeof question.correct_answer === 'number') return question.correct_answer;
+      if (question.options) {
+        const idx = question.options.findIndex(opt => opt.trim().toLowerCase() === String(question.correct_answer).trim().toLowerCase());
+        if (idx !== -1) return idx;
+      }
+    }
+    return 0;
+  };
+
+  const navigateToNextModule = () => {
+    setIsAutoNavigating(false);
+    const allMods = course?.modules || modules;
+    if (!activeModule || !allMods || allMods.length === 0) return;
+    const curIdx = allMods.findIndex(m => String(m._id || m.id) === String(activeModule._id || activeModule.id));
+    if (curIdx !== -1 && curIdx < allMods.length - 1) {
+      const nextMod = allMods[curIdx + 1];
+      const nextId = String(nextMod._id || nextMod.id);
+      setUnlockedModuleIds(prev => Array.from(new Set([...prev, nextId])));
+      setActiveModule(nextMod);
+      const nextLessons = nextMod.lessons || nextMod.resources || [];
+      if (nextLessons.length > 0) setActiveLesson(nextLessons[0]);
+      setQuizData(null);
+      setQuizError('');
+      setToastMessage(`🚀 Unlocked & navigated to Module ${curIdx + 2}: ${nextMod.title}`);
+      setTimeout(() => {
+        window.scrollTo({ top: 350, behavior: 'smooth' });
+      }, 200);
+    }
+  };
+
+  const handleQuizSubmit = async (quiz) => {
+    const quizId = String(quiz._id || quiz.id || 'default_quiz');
+    const questions = quiz.questions || [];
+
+    const unanswered = questions.filter((_, idx) => userAnswers[`${quizId}_q${idx}`] === undefined);
+    if (unanswered.length > 0) {
+      setToastMessage(`⚠️ Please answer all questions before submitting (${unanswered.length} remaining).`);
+      return;
+    }
+
+    let correctCount = 0;
+    const questionDetails = questions.map((q, idx) => {
+      const selectedIdx = userAnswers[`${quizId}_q${idx}`];
+      const correctIdx = getCorrectAnswerIndex(q);
+      const isCorrect = selectedIdx === correctIdx;
+      if (isCorrect) correctCount++;
+      return {
+        question: q.question,
+        options: q.options || [],
+        selectedIdx,
+        correctIdx,
+        isCorrect
+      };
+    });
+
+    const total = questions.length;
+    const percentage = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+    const passed = percentage >= 50;
+
+    const resultObj = {
+      score: correctCount,
+      total,
+      percentage,
+      passed,
+      details: questionDetails
+    };
+
+    setQuizResults(prev => ({ ...prev, [quizId]: resultObj }));
+
+    const currentModId = String(activeModule?._id || activeModule?.id || '');
+    if (currentModId) {
+      try {
+        await axios.post(
+          `http://localhost:5000/api/student/module/${currentModId}/quiz/submit`,
+          { score: correctCount, total, answers: userAnswers },
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+      } catch (err) {
+        console.error('Error saving quiz submit:', err);
+      }
+
+      setCompletedModuleIds(prev => Array.from(new Set([...prev, currentModId])));
+    }
+
+    setToastMessage(`🎉 Quiz submitted! Score: ${correctCount}/${total} (${percentage}%)`);
+
+    // Auto-unlock next module
+    const allMods = course?.modules || modules;
+    if (allMods && activeModule) {
+      const curIdx = allMods.findIndex(m => String(m._id || m.id) === currentModId);
+      if (curIdx !== -1 && curIdx < allMods.length - 1) {
+        const nextMod = allMods[curIdx + 1];
+        const nextId = String(nextMod._id || nextMod.id);
+        setUnlockedModuleIds(prev => Array.from(new Set([...prev, nextId])));
+        setAutoNavCountdown(5);
+        setIsAutoNavigating(true);
+      }
+    }
+  };
+
+  const handleRetakeQuiz = (quizId) => {
+    setIsAutoNavigating(false);
+    setQuizResults(prev => {
+      const copy = { ...prev };
+      delete copy[quizId];
+      return copy;
+    });
+  };
+
+  useEffect(() => {
+    let timer = null;
+    if (isAutoNavigating && autoNavCountdown > 0) {
+      timer = setTimeout(() => {
+        setAutoNavCountdown(prev => prev - 1);
+      }, 1000);
+    } else if (isAutoNavigating && autoNavCountdown === 0) {
+      setIsAutoNavigating(false);
+      navigateToNextModule();
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [isAutoNavigating, autoNavCountdown]);
+
 
 
   const getEmbedUrl = (url) => {
@@ -512,37 +708,60 @@ const CourseDetails = () => {
                   </h3>
                 </div>
                 <div>
-                  {modules.map((module, index) => (
-                    <div
-                      key={module.id}
-                      onClick={() => { setActiveModule(module); setQuizData(null); setQuizError(''); }}
-                      style={{
-                        padding: '16px 24px',
-                        borderBottom: index < modules.length - 1 ? '1px solid #E5E7EB' : 'none',
-                        cursor: 'pointer',
-                        backgroundColor: activeModule?.id === module.id ? '#F8FAFC' : '#ffffff',
-                        transition: 'background-color 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (activeModule?.id !== module.id) {
-                          e.target.style.backgroundColor = '#F8FAFC';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (activeModule?.id !== module.id) {
-                          e.target.style.backgroundColor = '#ffffff';
-                        }
-                      }}
-                    >
-                      <div style={{ fontWeight: '500', color: '#111827', marginBottom: '4px' }}>
-                        {module.title}
+                  {modules.map((module, index) => {
+                    const isUnlocked = isModuleUnlocked(module, index);
+                    const isCompleted = isModuleCompleted(module);
+
+                    return (
+                      <div
+                        key={module.id || module._id || index}
+                        onClick={() => {
+                          if (isUnlocked) {
+                            setActiveModule(module);
+                            const modLessons = module.lessons || module.resources || [];
+                            if (modLessons.length > 0) setActiveLesson(modLessons[0]);
+                            setQuizData(null);
+                            setQuizError('');
+                            setIsAutoNavigating(false);
+                          } else {
+                            setToastMessage('🔒 Complete the previous module quiz to unlock this module!');
+                          }
+                        }}
+                        style={{
+                          padding: '16px 24px',
+                          borderBottom: index < modules.length - 1 ? '1px solid #E5E7EB' : 'none',
+                          cursor: isUnlocked ? 'pointer' : 'not-allowed',
+                          backgroundColor: activeModule?.id === module.id || activeModule?._id === module._id ? '#F8FAFC' : '#ffffff',
+                          opacity: isUnlocked ? 1 : 0.65,
+                          transition: 'background-color 0.2s'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+                          <div style={{ fontWeight: '600', color: '#111827', fontSize: '15px' }}>
+                            {module.title}
+                          </div>
+                          {isCompleted ? (
+                            <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#D1FAE5', color: '#047857' }}>
+                              ✓ Done
+                            </span>
+                          ) : isUnlocked ? (
+                            <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#DBEAFE', color: '#1E40AF' }}>
+                              Unlocked
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#F3F4F6', color: '#6B7280' }}>
+                              🔒 Locked
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '13px', color: '#6B7280' }}>
+                          {(module.lessons || module.resources || []).length} lessons
+                        </div>
                       </div>
-                      <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                        {(module.lessons || module.resources || []).length} lessons
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+
               </div>
 
               {/* Lesson Content */}
@@ -641,70 +860,239 @@ const CourseDetails = () => {
                   <div className="section-head">
                     <h2>📝 Module Quiz</h2>
                   </div>
-                  {quizData.map((quiz, qIdx) => (
-                    <div key={quiz._id || quiz.id || qIdx} style={{
-                      background: '#ffffff',
-                      border: '2px solid #10B981',
-                      borderRadius: '16px',
-                      padding: '32px',
-                      marginBottom: '32px',
-                      boxShadow: '0 4px 16px rgba(16,185,129,0.08)'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                        <span style={{ fontSize: '24px' }}>🎉</span>
-                        <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: 0 }}>{quiz.title}</h3>
-                        <span style={{ marginLeft: 'auto', padding: '4px 12px', borderRadius: '20px', backgroundColor: '#D1FAE5', color: '#047857', fontSize: '12px', fontWeight: '600' }}>Unlocked</span>
-                      </div>
-                      {quiz.description && <p style={{ color: '#4B5563', marginBottom: '24px' }}>{quiz.description}</p>}
-                      {quiz.questions && quiz.questions.map((q, idx) => (
-                        <div key={idx} style={{
-                          marginBottom: '24px',
-                          padding: '20px',
-                          background: '#F8FAFC',
-                          borderRadius: '12px',
-                          border: '1px solid #E5E7EB'
-                        }}>
-                          <div style={{ fontWeight: '600', color: '#111827', marginBottom: '12px' }}>
-                            Q{idx + 1}: {q.question}
-                          </div>
-                          {q.options && q.options.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                              {q.options.map((opt, oIdx) => (
-                                <label key={oIdx} style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '10px',
-                                  padding: '10px 14px',
-                                  borderRadius: '8px',
-                                  border: '1px solid #E5E7EB',
-                                  background: '#ffffff',
-                                  cursor: 'pointer',
-                                  transition: 'border-color 0.2s'
-                                }}>
-                                  <input
-                                    type={q.type === 'multiple' ? 'checkbox' : 'radio'}
-                                    name={`quiz-${quiz._id || quiz.id || qIdx}-q${idx}`}
-                                    value={opt}
-                                    style={{ accentColor: '#0F172A' }}
-                                  />
-                                  <span style={{ color: '#374151', fontSize: '14px' }}>{opt}</span>
-                                </label>
-                              ))}
-                            </div>
-                          )}
+                  {quizData.map((quiz, qIdx) => {
+                    const quizId = String(quiz._id || quiz.id || qIdx);
+                    const result = quizResults[quizId];
+                    const allMods = course?.modules || modules;
+                    const curIdx = allMods.findIndex(m => String(m._id || m.id) === String(activeModule?._id || activeModule?.id));
+                    const hasNextModule = curIdx !== -1 && curIdx < allMods.length - 1;
+                    const nextModule = hasNextModule ? allMods[curIdx + 1] : null;
+
+                    return (
+                      <div key={quizId} style={{
+                        background: '#ffffff',
+                        border: result ? (result.passed ? '2px solid #10B981' : '2px solid #F59E0B') : '2px solid #3B82F6',
+                        borderRadius: '16px',
+                        padding: '32px',
+                        marginBottom: '32px',
+                        boxShadow: '0 4px 16px rgba(15,23,42,0.06)'
+                      }}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                          <span style={{ fontSize: '24px' }}>{result ? (result.passed ? '🏆' : '📝') : '📝'}</span>
+                          <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: 0 }}>{quiz.title}</h3>
+                          <span style={{ 
+                            marginLeft: 'auto', 
+                            padding: '4px 14px', 
+                            borderRadius: '20px', 
+                            backgroundColor: result ? (result.passed ? '#D1FAE5' : '#FEF3C7') : '#DBEAFE', 
+                            color: result ? (result.passed ? '#047857' : '#92400E') : '#1E40AF', 
+                            fontSize: '13px', 
+                            fontWeight: '600' 
+                          }}>
+                            {result ? `Submitted - Score: ${result.score}/${result.total} (${result.percentage}%)` : 'Quiz Unlocked'}
+                          </span>
                         </div>
-                      ))}
-                      {quiz.questions && quiz.questions.length > 0 && (
-                        <button
-                          className="btn btn-gold"
-                          style={{ marginTop: '8px' }}
-                          onClick={() => setToastMessage('Quiz submitted! Great job completing this module.')}
-                        >
-                          Submit Quiz
-                        </button>
-                      )}
-                    </div>
-                  ))}
+
+                        {quiz.description && <p style={{ color: '#4B5563', marginBottom: '24px' }}>{quiz.description}</p>}
+
+                        {/* Overall Results Summary Banner (If Submitted) */}
+                        {result && (
+                          <div style={{
+                            backgroundColor: result.passed ? '#ECFDF5' : '#FEF3C7',
+                            border: result.passed ? '1px solid #A7F3D0' : '1px solid #FDE68A',
+                            borderRadius: '12px',
+                            padding: '20px',
+                            marginBottom: '28px'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+                              <div>
+                                <h4 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: result.passed ? '#065F46' : '#92400E' }}>
+                                  {result.passed ? '🎉 Quiz Completed & Passed!' : '📝 Quiz Completed'}
+                                </h4>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: result.passed ? '#047857' : '#B45309' }}>
+                                  You scored <strong>{result.score}</strong> out of <strong>{result.total}</strong> ({result.percentage}%). Correct and incorrect answers are detailed below.
+                                </p>
+                              </div>
+                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                {hasNextModule && (
+                                  <button
+                                    className="btn btn-gold"
+                                    onClick={navigateToNextModule}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px', fontSize: '14px', fontWeight: '600' }}
+                                  >
+                                    <span>Continue to Next Module ({nextModule?.title})</span>
+                                    <span>→</span>
+                                  </button>
+                                )}
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  onClick={() => handleRetakeQuiz(quizId)}
+                                  style={{ padding: '10px 16px' }}
+                                >
+                                  🔄 Retake Quiz
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Auto Navigation Countdown Bar */}
+                            {isAutoNavigating && hasNextModule && (
+                              <div style={{
+                                marginTop: '16px',
+                                padding: '12px 16px',
+                                backgroundColor: '#ffffff',
+                                borderRadius: '8px',
+                                border: '1px dashed #10B981',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                              }}>
+                                <span style={{ fontSize: '14px', fontWeight: '600', color: '#047857', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  🔓 Next Module Unlocked! Automatically navigating to "{nextModule?.title}" in {autoNavCountdown}s...
+                                </span>
+                                <button
+                                  className="btn btn-sm btn-gold"
+                                  onClick={navigateToNextModule}
+                                  style={{ fontSize: '12px', padding: '6px 14px' }}
+                                >
+                                  Go to Next Module Now →
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Question Breakdown */}
+                        {quiz.questions && quiz.questions.map((q, idx) => {
+                          const selectedOptIdx = userAnswers[`${quizId}_q${idx}`];
+                          const correctOptIdx = getCorrectAnswerIndex(q);
+                          const isQuestionSubmitted = !!result;
+                          const isCorrect = isQuestionSubmitted && (selectedOptIdx === correctOptIdx);
+
+                          return (
+                            <div key={idx} style={{
+                              marginBottom: '24px',
+                              padding: '20px',
+                              background: isQuestionSubmitted
+                                ? (isCorrect ? '#F0FDF4' : '#FEF2F2')
+                                : '#F8FAFC',
+                              borderRadius: '12px',
+                              border: isQuestionSubmitted
+                                ? (isCorrect ? '1px solid #BBF7D0' : '1px solid #FECACA')
+                                : '1px solid #E5E7EB'
+                            }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                <div style={{ fontWeight: '600', color: '#111827', fontSize: '15px' }}>
+                                  Q{idx + 1}: {q.question}
+                                </div>
+                                {isQuestionSubmitted && (
+                                  <span style={{
+                                    padding: '4px 10px',
+                                    borderRadius: '12px',
+                                    fontSize: '12px',
+                                    fontWeight: '700',
+                                    backgroundColor: isCorrect ? '#10B981' : '#EF4444',
+                                    color: '#ffffff'
+                                  }}>
+                                    {isCorrect ? '✓ Correct' : '✗ Incorrect'}
+                                  </span>
+                                )}
+                              </div>
+
+                              {q.options && q.options.length > 0 && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                  {q.options.map((opt, oIdx) => {
+                                    const isSelected = selectedOptIdx === oIdx;
+                                    const isThisCorrect = correctOptIdx === oIdx;
+
+                                    let optStyle = {
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'space-between',
+                                      padding: '12px 16px',
+                                      borderRadius: '8px',
+                                      border: '1px solid #E5E7EB',
+                                      background: '#ffffff',
+                                      cursor: isQuestionSubmitted ? 'default' : 'pointer',
+                                      transition: 'all 0.2s'
+                                    };
+
+                                    if (isQuestionSubmitted) {
+                                      if (isSelected && isThisCorrect) {
+                                        optStyle.border = '2px solid #10B981';
+                                        optStyle.background = '#D1FAE5';
+                                        optStyle.fontWeight = '600';
+                                      } else if (isSelected && !isThisCorrect) {
+                                        optStyle.border = '2px solid #EF4444';
+                                        optStyle.background = '#FEE2E2';
+                                        optStyle.fontWeight = '600';
+                                      } else if (!isSelected && isThisCorrect) {
+                                        optStyle.border = '2px solid #10B981';
+                                        optStyle.background = '#ECFDF5';
+                                      }
+                                    } else if (isSelected) {
+                                      optStyle.border = '2px solid #0F172A';
+                                      optStyle.background = '#F1F5F9';
+                                      optStyle.fontWeight = '600';
+                                    }
+
+                                    return (
+                                      <label key={oIdx} style={optStyle}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                          <input
+                                            type={q.type === 'multiple' ? 'checkbox' : 'radio'}
+                                            name={`quiz-${quizId}-q${idx}`}
+                                            value={oIdx}
+                                            checked={isSelected}
+                                            disabled={isQuestionSubmitted}
+                                            onChange={() => handleOptionChange(quizId, idx, oIdx)}
+                                            style={{ accentColor: '#0F172A' }}
+                                          />
+                                          <span style={{ color: '#374151', fontSize: '14px' }}>{opt}</span>
+                                        </div>
+
+                                        {/* Status Labels on Option */}
+                                        {isQuestionSubmitted && (
+                                          <div>
+                                            {isSelected && isThisCorrect && (
+                                              <span style={{ color: '#047857', fontWeight: '700', fontSize: '13px' }}>
+                                                ✓ Your Answer (Correct)
+                                              </span>
+                                            )}
+                                            {isSelected && !isThisCorrect && (
+                                              <span style={{ color: '#DC2626', fontWeight: '700', fontSize: '13px' }}>
+                                                ✗ Your Answer (Incorrect)
+                                              </span>
+                                            )}
+                                            {!isSelected && isThisCorrect && (
+                                              <span style={{ color: '#047857', fontWeight: '700', fontSize: '13px' }}>
+                                                ✓ Correct Answer
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* Submit Button (Only shown if not yet submitted) */}
+                        {!result && quiz.questions && quiz.questions.length > 0 && (
+                          <button
+                            className="btn btn-gold"
+                            style={{ marginTop: '8px', padding: '12px 24px', fontSize: '15px' }}
+                            onClick={() => handleQuizSubmit(quiz)}
+                          >
+                            Submit Quiz & View Results
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </>
               )}
               {quizError && (
@@ -713,6 +1101,7 @@ const CourseDetails = () => {
                 </div>
               )}
             </div>
+
 
             {/* Study Materials */}
             <div className="section-head">

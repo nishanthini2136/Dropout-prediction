@@ -175,6 +175,44 @@ def get_module_quiz(module_id):
 
     return jsonify([_serialize(q) for q in quizzes]), 200
 
+# ---------------------------------------------------------------------------
+# Submit quiz results for a module
+@student_bp.route('/module/<module_id>/quiz/submit', methods=['POST'])
+@token_required
+def submit_module_quiz(module_id):
+    """Save quiz submission result for a module."""
+    user_id = request.current_user_id
+    data = request.get_json() or {}
+    score = data.get('score', 0)
+    total = data.get('total', 0)
+    answers = data.get('answers', {})
+
+    try:
+        ProgressModel().set_quiz_completed(user_id, module_id, score, total, answers)
+    except Exception as e:
+        return jsonify({'error': f'Could not save quiz result: {str(e)}'}), 500
+
+    return jsonify({
+        'message': 'Quiz submission saved successfully',
+        'score': score,
+        'total': total,
+        'module_id': str(module_id)
+    }), 200
+
+# ---------------------------------------------------------------------------
+# Get overall progress (watched videos & completed quizzes) for current student
+@student_bp.route('/progress', methods=['GET'])
+@token_required
+def get_student_progress():
+    """Return progress mapping for all modules for current student."""
+    user_id = request.current_user_id
+    try:
+        progress = ProgressModel().get_all_user_progress(user_id)
+        return jsonify(progress), 200
+    except Exception as e:
+        return jsonify({'error': f'Could not fetch progress: {str(e)}'}), 500
+
+
 
 
 
