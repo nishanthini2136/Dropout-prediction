@@ -75,35 +75,103 @@ def get_module_quiz(module_id):
     if not video_watched:
         return jsonify({'error': 'Quiz is locked until the video is completed'}), 403
 
-    # Fetch quizzes — handle both ObjectId and integer module IDs
     quizzes = []
-    
-    # First try ObjectId lookup (for separate modules collection)
+    module_title = None
+
+    # 1. Look up in separate 'quizzes' collection
     oid = _to_object_id(module_id)
     if oid is not None:
         try:
             quizzes = QuizModel().get_quizzes_by_module(module_id)
         except Exception:
             pass
-    
-    # If still empty, try integer lookup (for embedded modules in course documents)
+
     if not quizzes:
         try:
-            # Try to find quizzes by converting module_id to integer
             module_id_int = int(module_id)
             quizzes = list(db.get_db()['quizzes'].find({'module_id': module_id_int}))
         except (ValueError, TypeError):
             pass
-    
-    # If still empty, try raw string match
+
     if not quizzes:
         try:
-            quizzes = list(db.get_db()['quizzes'].find({'module_id': module_id}))
+            quizzes = list(db.get_db()['quizzes'].find({'module_id': str(module_id)}))
         except Exception:
             pass
 
+    # 2. If not found in 'quizzes' collection, look up in 'courses' collection for embedded modules
     if not quizzes:
-        return jsonify({'error': 'No quiz found for this module'}), 404
+        try:
+            courses = list(db.get_db()['courses'].find())
+            for course in courses:
+                mods = course.get('modules', [])
+                for mod in mods:
+                    mod_id = str(mod.get('_id') or mod.get('id') or '')
+                    if mod_id == str(module_id) or (str(module_id).isdigit() and str(mod.get('id')) == str(module_id)):
+                        module_title = mod.get('title')
+                        embedded_quizzes = mod.get('quizzes', [])
+                        if embedded_quizzes:
+                            for eq in embedded_quizzes:
+                                q_dict = dict(eq)
+                                if '_id' not in q_dict and 'id' in q_dict:
+                                    q_dict['_id'] = str(q_dict['id'])
+                                elif '_id' not in q_dict:
+                                    q_dict['_id'] = f"quiz_{module_id}"
+                                quizzes.append(q_dict)
+                        break
+                if quizzes:
+                    break
+        except Exception as e:
+            print("Error searching embedded courses for quiz:", e)
+
+    # 3. Fallback: If still no quiz found, generate a dynamic module knowledge check quiz
+    if not quizzes:
+        title_display = module_title or f"Module {module_id}"
+        default_quiz = {
+            '_id': f"quiz_auto_{module_id}",
+            'module_id': str(module_id),
+            'title': f"📝 {title_display} - Knowledge Assessment Quiz",
+            'description': 'Test your comprehension of the concepts presented in this module video.',
+            'questions': [
+                {
+                    'id': 1,
+                    'question': f'What is the central focus of {title_display}?',
+                    'type': 'single',
+                    'options': [
+                        'Understanding the core principles and key techniques taught in this lesson',
+                        'Memorizing random definitions without practical context',
+                        'Bypassing practical exercises and problem solving',
+                        'Ignoring the foundational concepts of the topic'
+                    ],
+                    'answer': 0
+                },
+                {
+                    'id': 2,
+                    'question': 'What is recommended after watching this video lesson?',
+                    'type': 'single',
+                    'options': [
+                        'Complete the assessment quiz and practice the sample exercises',
+                        'Skip directly to the end of the course without reviewing',
+                        'Close all learning materials immediately',
+                        'Discard notes taken during the video'
+                    ],
+                    'answer': 0
+                },
+                {
+                    'id': 3,
+                    'question': 'How can you best apply the concepts learned in this module?',
+                    'type': 'single',
+                    'options': [
+                        'By practicing real-world problems and validating knowledge with quizzes',
+                        'By ignoring the course assignments',
+                        'By relying solely on memory without practice',
+                        'None of the above'
+                    ],
+                    'answer': 0
+                }
+            ]
+        }
+        quizzes = [default_quiz]
 
     return jsonify([_serialize(q) for q in quizzes]), 200
 

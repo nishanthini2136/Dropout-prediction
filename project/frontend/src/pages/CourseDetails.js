@@ -641,8 +641,8 @@ const CourseDetails = () => {
                   <div className="section-head">
                     <h2>📝 Module Quiz</h2>
                   </div>
-                  {quizData.map((quiz) => (
-                    <div key={quiz._id} style={{
+                  {quizData.map((quiz, qIdx) => (
+                    <div key={quiz._id || quiz.id || qIdx} style={{
                       background: '#ffffff',
                       border: '2px solid #10B981',
                       borderRadius: '16px',
@@ -683,7 +683,7 @@ const CourseDetails = () => {
                                 }}>
                                   <input
                                     type={q.type === 'multiple' ? 'checkbox' : 'radio'}
-                                    name={`quiz-${quiz._id}-q${idx}`}
+                                    name={`quiz-${quiz._id || quiz.id || qIdx}-q${idx}`}
                                     value={opt}
                                     style={{ accentColor: '#0F172A' }}
                                   />
