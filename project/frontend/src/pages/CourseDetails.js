@@ -26,6 +26,9 @@ const CourseDetails = () => {
   const [toastMessage, setToastMessage] = useState('');
   const [player, setPlayer] = useState(null);
   const [videoEnded, setVideoEnded] = useState(false);
+  const [quizData, setQuizData] = useState(null);
+  const [quizError, setQuizError] = useState('');
+
 
   useEffect(() => {
     fetchCourseDetails();
@@ -202,16 +205,60 @@ const CourseDetails = () => {
     }
   };
 
+  // Fetch quiz for a module after video completion
+  const fetchQuiz = async (moduleId) => {
+    try {
+      const response = await axios.get(`http://localhost:5000/api/student/module/${moduleId}/quiz`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      console.log('Quiz fetched:', response.data);
+      setQuizData(response.data);
+      setQuizError('');
+    } catch (error) {
+      console.error('Error fetching quiz:', error);
+      if (error.response && error.response.status === 403) {
+        setQuizError('Quiz is locked until the video is completed');
+      } else if (error.response && error.response.status === 404) {
+        setQuizError('No quiz available for this module');
+      } else {
+        setQuizError('Failed to load quiz');
+      }
+    }
+  };
+
   const handleVideoComplete = async () => {
     if (activeLesson && activeModule) {
       console.log('handleVideoComplete called for lesson:', activeLesson.id, 'in module:', activeModule.id);
       setVideoEnded(true);
-      setToastMessage('Video completed! Progress updated automatically.');
+
+      // 1. Mark lesson progress in enrollment
       await handleLessonComplete(activeModule.id, activeLesson.id);
+
+      // 2. Mark video as watched in ProgressModel so quiz is unlocked
+      try {
+        await axios.post(
+          `http://localhost:5000/api/student/module/${activeModule._id || activeModule.id}/watch`,
+          {},
+          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+        );
+        console.log('Video marked as watched in ProgressModel');
+      } catch (err) {
+        console.error('Error marking video as watched:', err);
+      }
+
+      // 3. Close the video modal and fetch the quiz
+      setShowVideoPlayer(false);
+      setToastMessage('🎉 Video completed! Quiz is now unlocked below.');
+      await fetchQuiz(activeModule._id || activeModule.id);
+
+      // 4. Scroll to quiz section smoothly
+      setTimeout(() => {
+        const quizSection = document.getElementById('quiz-section');
+        if (quizSection) quizSection.scrollIntoView({ behavior: 'smooth' });
+      }, 400);
     }
   };
 
-  // Progress is now calculated server-side in update_lesson_progress endpoint
 
   const getEmbedUrl = (url) => {
     if (!url) return '';
@@ -468,7 +515,7 @@ const CourseDetails = () => {
                   {modules.map((module, index) => (
                     <div
                       key={module.id}
-                      onClick={() => setActiveModule(module)}
+                      onClick={() => { setActiveModule(module); setQuizData(null); setQuizError(''); }}
                       style={{
                         padding: '16px 24px',
                         borderBottom: index < modules.length - 1 ? '1px solid #E5E7EB' : 'none',
@@ -512,8 +559,7 @@ const CourseDetails = () => {
                     </h3>
 
                     {(activeModule.lessons || activeModule.resources || []).map((lesson, index) => {
-    const isCompleted = isLessonCompleted(activeModule.id, lesson.id);
-
+                      const isCompleted = isLessonCompleted(activeModule.id, lesson.id);
 
                       return (
                         <div
@@ -586,6 +632,86 @@ const CourseDetails = () => {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Quiz Section — unlocked after video completion */}
+            <div id="quiz-section">
+              {quizData && quizData.length > 0 && (
+                <>
+                  <div className="section-head">
+                    <h2>📝 Module Quiz</h2>
+                  </div>
+                  {quizData.map((quiz) => (
+                    <div key={quiz._id} style={{
+                      background: '#ffffff',
+                      border: '2px solid #10B981',
+                      borderRadius: '16px',
+                      padding: '32px',
+                      marginBottom: '32px',
+                      boxShadow: '0 4px 16px rgba(16,185,129,0.08)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '24px' }}>🎉</span>
+                        <h3 style={{ fontSize: '20px', fontWeight: '700', color: '#111827', margin: 0 }}>{quiz.title}</h3>
+                        <span style={{ marginLeft: 'auto', padding: '4px 12px', borderRadius: '20px', backgroundColor: '#D1FAE5', color: '#047857', fontSize: '12px', fontWeight: '600' }}>Unlocked</span>
+                      </div>
+                      {quiz.description && <p style={{ color: '#4B5563', marginBottom: '24px' }}>{quiz.description}</p>}
+                      {quiz.questions && quiz.questions.map((q, idx) => (
+                        <div key={idx} style={{
+                          marginBottom: '24px',
+                          padding: '20px',
+                          background: '#F8FAFC',
+                          borderRadius: '12px',
+                          border: '1px solid #E5E7EB'
+                        }}>
+                          <div style={{ fontWeight: '600', color: '#111827', marginBottom: '12px' }}>
+                            Q{idx + 1}: {q.question}
+                          </div>
+                          {q.options && q.options.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              {q.options.map((opt, oIdx) => (
+                                <label key={oIdx} style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '10px',
+                                  padding: '10px 14px',
+                                  borderRadius: '8px',
+                                  border: '1px solid #E5E7EB',
+                                  background: '#ffffff',
+                                  cursor: 'pointer',
+                                  transition: 'border-color 0.2s'
+                                }}>
+                                  <input
+                                    type={q.type === 'multiple' ? 'checkbox' : 'radio'}
+                                    name={`quiz-${quiz._id}-q${idx}`}
+                                    value={opt}
+                                    style={{ accentColor: '#0F172A' }}
+                                  />
+                                  <span style={{ color: '#374151', fontSize: '14px' }}>{opt}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {quiz.questions && quiz.questions.length > 0 && (
+                        <button
+                          className="btn btn-gold"
+                          style={{ marginTop: '8px' }}
+                          onClick={() => setToastMessage('Quiz submitted! Great job completing this module.')}
+                        >
+                          Submit Quiz
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </>
+              )}
+              {quizError && (
+                <div style={{ background: '#FEF3C7', color: '#92400E', padding: '16px', borderRadius: '8px', marginBottom: '16px', border: '1px solid #FDE68A' }}>
+                  ⚠️ {quizError}
+                </div>
+              )}
             </div>
 
             {/* Study Materials */}
