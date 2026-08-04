@@ -86,3 +86,59 @@ def dashboard_events():
     response.headers['Cache-Control'] = 'no-cache'
     response.headers['X-Accel-Buffering'] = 'no'
     return response
+
+@admin_bp.route('/api/admin/students', methods=['GET'])
+@admin_required
+def get_students():
+    try:
+        user_model = User()
+        students = user_model.get_all_students()
+        for student in students:
+            student['_id'] = str(student['_id'])
+            # Don't send password hash
+            if 'password' in student:
+                del student['password']
+        return jsonify(students), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/api/admin/risk/recalculate', methods=['POST'])
+@admin_required
+def recalculate_risk():
+    try:
+        from services.risk_engine import RiskEngine
+        risk_engine = RiskEngine()
+        user_model = User()
+        students = user_model.get_all_students()
+        
+        count = 0
+        for student in students:
+            try:
+                risk_engine.predict_risk(str(student['_id']))
+                count += 1
+            except Exception as e:
+                print(f"Failed to calculate risk for {student['_id']}: {e}")
+                
+        return jsonify({'message': f'Recalculated risk for {count} students'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@admin_bp.route('/api/admin/analytics', methods=['GET'])
+@admin_required
+def get_analytics():
+    try:
+        from config.database import db
+        # Return aggregations for analytics console
+        # Example: Risk distribution
+        pipeline = [
+            {'$group': {'_id': '$risk_level', 'count': {'$sum': 1}}}
+        ]
+        risk_distribution_raw = list(db.get_db()['predictions'].aggregate(pipeline))
+        risk_distribution = {item['_id']: item['count'] for item in risk_distribution_raw if item['_id']}
+        
+        return jsonify({
+            'risk_distribution': risk_distribution
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+

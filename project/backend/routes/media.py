@@ -1,12 +1,12 @@
 from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from utils.auth import admin_required
 from models.media import MediaModel
 from utils.notifier import stats_notifier
 
 media_bp = Blueprint('media', __name__, url_prefix='/api/admin/media')
 
 @media_bp.route('', methods=['POST'])
-@jwt_required()
+@admin_required
 def upload_media():
     """Upload a video, PDF, PPT, or resource file.
     Expected form-data fields:
@@ -35,7 +35,7 @@ def upload_media():
         return jsonify({'error': str(e)}), 500
 
 @media_bp.route('/<media_id>', methods=['DELETE'])
-@jwt_required()
+@admin_required
 def delete_media(media_id):
     result = MediaModel().delete_media(media_id)
     stats_notifier.notify()

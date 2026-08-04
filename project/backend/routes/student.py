@@ -213,6 +213,91 @@ def get_student_progress():
         return jsonify({'error': f'Could not fetch progress: {str(e)}'}), 500
 
 
+# ---------------------------------------------------------------------------
+# Engagement log API
+@student_bp.route('/engagement/log', methods=['POST'])
+@token_required
+def log_engagement():
+    user_id = request.current_user_id
+    data = request.get_json() or {}
+    course_id = data.get('course_id')
+    module_id = data.get('module_id')
+    event_type = data.get('event_type')
+    duration = data.get('duration', 0)
+    
+    try:
+        from models.engagement import EngagementModel
+        EngagementModel().log_event(user_id, course_id, module_id, event_type, duration)
+        return jsonify({'message': 'Logged'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
+# ---------------------------------------------------------------------------
+# Roadmap API
+@student_bp.route('/roadmap/<int:week_num>', methods=['GET', 'POST'])
+@token_required
+def handle_roadmap(week_num):
+    user_id = request.current_user_id
+    from models.roadmap import RoadmapModel
+    roadmap_model = RoadmapModel()
+    
+    if request.method == 'GET':
+        roadmap = roadmap_model.get_roadmap(user_id, week_num)
+        if roadmap:
+            roadmap['_id'] = str(roadmap['_id'])
+            return jsonify({'roadmap': roadmap}), 200
+        return jsonify({'roadmap': None}), 200
+        
+    elif request.method == 'POST':
+        data = request.get_json()
+        tasks = data.get('tasks', [])
+        roadmap_id = roadmap_model.create_or_update_roadmap(user_id, week_num, tasks)
+        return jsonify({'message': 'Roadmap saved', 'id': str(roadmap_id)}), 200
 
+@student_bp.route('/roadmap/<int:week_num>/task/<int:task_index>', methods=['PUT'])
+@token_required
+def update_roadmap_task(week_num, task_index):
+    user_id = request.current_user_id
+    data = request.get_json()
+    new_status = data.get('status')
+    
+    from models.roadmap import RoadmapModel
+    success = RoadmapModel().update_task_status(user_id, week_num, task_index, new_status)
+    if success:
+        return jsonify({'message': 'Task updated'}), 200
+    return jsonify({'error': 'Task or roadmap not found'}), 404
 
+# ---------------------------------------------------------------------------
+# KNN Recommendations API
+@student_bp.route('/recommendations', methods=['GET'])
+@token_required
+def get_recommendations():
+    user_id = request.current_user_id
+    try:
+        from services.recommendation_engine import RecommendationEngine
+        rec_engine = RecommendationEngine()
+        recommendations = rec_engine.get_recommendations(user_id, top_k=3)
+        for rec in recommendations:
+            rec['_id'] = str(rec['_id'])
+        return jsonify({'recommendations': recommendations}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# Dashboard Stats & Prediction Forecast
+@student_bp.route('/dashboard/stats', methods=['GET'])
+@token_required
+def get_dashboard_stats():
+    user_id = request.current_user_id
+    try:
+        from models.prediction import PredictionModel
+        prediction = PredictionModel().get_prediction(user_id)
+        if prediction:
+            prediction['_id'] = str(prediction['_id'])
+        
+        # We can also return enrollments, progress, etc here
+        return jsonify({
+            'prediction': prediction
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

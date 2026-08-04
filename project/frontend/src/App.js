@@ -10,6 +10,7 @@ import CourseDetails from './pages/CourseDetails';
 import CourseCreator from './pages/CourseCreator';
 import MyCourses from './pages/MyCourses';
 import Profile from './pages/Profile';
+import CourseCatalog from './pages/CourseCatalog';
 import { AuthProvider } from './context/AuthContext';
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
         <div className="App">
           <Routes>
             <Route path="/" element={<Landing />} />
+            <Route path="/catalog" element={<CourseCatalog />} />
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/student/login" element={<StudentLogin />} />
             <Route path="/student/register" element={<StudentRegister />} />

@@ -1,6 +1,5 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager
 from config.database import db
 
 # Import blueprints
@@ -16,14 +15,6 @@ from routes.forum import forum_bp
 from routes.student import student_bp
 
 app = Flask(__name__)
-
-# JWT Configuration
-app.config['JWT_SECRET_KEY'] = 'your-secret-key-change-this-in-production'
-app.config['JWT_TOKEN_LOCATION'] = ['headers']
-app.config['JWT_HEADER_NAME'] = 'Authorization'
-app.config['JWT_HEADER_TYPE'] = 'Bearer'
-
-jwt = JWTManager(app)
 
 # Enable CORS
 CORS(app)

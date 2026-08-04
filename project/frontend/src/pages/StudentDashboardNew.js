@@ -4,13 +4,21 @@ import { useAuth } from '../context/AuthContext';
 import CourseCard from '../components/CourseCard';
 import Toast from '../components/Toast';
 import axios from 'axios';
+import { Line } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
 import './Dashboard.css';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 const StudentDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [courses, setCourses] = useState([]);
   const [enrolledCourses, setEnrolledCourses] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
+  const [prediction, setPrediction] = useState(null);
+  const [roadmap, setRoadmap] = useState(null);
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const fallbackImage = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop';
@@ -18,118 +26,116 @@ const StudentDashboard = () => {
   useEffect(() => {
     fetchCourses();
     fetchEnrolledCourses();
+    fetchRecommendations();
+    fetchDashboardStats();
+    fetchRoadmap(1); // Default week 1
 
-    // Set up polling for real-time updates
     const interval = setInterval(() => {
       fetchCourses();
       fetchEnrolledCourses();
-    }, 30000); // Poll every 30 seconds
+      fetchDashboardStats();
+    }, 60000);
 
     return () => clearInterval(interval);
   }, []);
 
   const fetchCourses = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/courses', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      console.log('Courses fetched successfully:', response.data);
+      const response = await axios.get('/api/courses', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       setCourses(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error fetching courses:', error);
-      console.error('Error response:', error.response);
       setCourses([]);
     }
   };
 
   const fetchEnrolledCourses = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/enrollments/my-courses', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      console.log('Enrolled courses fetched successfully:', response.data);
+      const response = await axios.get('/api/enrollments/my-courses', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       setEnrolledCourses(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error fetching enrolled courses:', error);
-      console.error('Error response:', error.response);
       setEnrolledCourses([]);
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/');
+  const fetchRecommendations = async () => {
+    try {
+      const response = await axios.get('/api/student/recommendations', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setRecommendations(response.data.recommendations || []);
+    } catch (error) {
+      console.error('Error fetching recommendations:', error);
+    }
+  };
+
+  const fetchDashboardStats = async () => {
+    try {
+      const response = await axios.get('/api/student/dashboard/stats', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setPrediction(response.data.prediction);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
+
+  const fetchRoadmap = async (week) => {
+    try {
+      const response = await axios.get(`/api/student/roadmap/${week}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setRoadmap(response.data.roadmap);
+    } catch (error) {
+      console.error('Error fetching roadmap:', error);
+    }
   };
 
   const handleEnroll = async (courseId) => {
     try {
-      const response = await axios.post('http://localhost:5000/api/enrollments', { course_id: courseId }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      console.log('Enrolled successfully:', response.data);
+      await axios.post('/api/enrollments', { course_id: courseId }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       setToastMessage('Enrolled successfully');
       fetchCourses();
       fetchEnrolledCourses();
+      fetchRecommendations();
     } catch (error) {
-      console.error('Error enrolling:', error);
-      console.error('Error response:', error.response);
-      if (error.response) {
-        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
-      } else if (error.request) {
-        setToastMessage('Error: No response from server. Check if backend is running.');
-      } else {
-        setToastMessage(`Error: ${error.message}`);
-      }
+      setToastMessage('Error enrolling course');
     }
   };
 
   const handleDrop = async (enrollmentId) => {
     if (window.confirm('Are you sure you want to drop this course?')) {
       try {
-        const response = await axios.delete(`http://localhost:5000/api/enrollments/${enrollmentId}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        });
-        console.log('Course dropped successfully:', response.data);
+        await axios.delete(`/api/enrollments/${enrollmentId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
         setToastMessage('Course dropped successfully');
         fetchCourses();
         fetchEnrolledCourses();
+        fetchRecommendations();
       } catch (error) {
-        console.error('Error dropping course:', error);
-        console.error('Error response:', error.response);
-        if (error.response) {
-          setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
-        } else if (error.request) {
-          setToastMessage('Error: No response from server. Check if backend is running.');
-        } else {
-          setToastMessage(`Error: ${error.message}`);
-        }
+        setToastMessage('Error dropping course');
       }
     }
   };
 
-  const handleUpdateProgress = async (enrollmentId, progress) => {
-    try {
-      await axios.put(`http://localhost:5000/api/enrollments/${enrollmentId}/progress`, { progress }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      fetchEnrolledCourses();
-    } catch (error) {
-      console.error('Error updating progress:', error);
-    }
-  };
-
-  const filteredCourses = courses.filter(course =>
-    course.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    course.code.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const getInitials = (name) => {
-    return name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'ST';
-  };
-
+  const getInitials = (name) => name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'ST';
   const getEnrollmentId = (courseId) => {
     const enrollment = enrolledCourses.find(e => e.course_id._id === courseId);
     return enrollment ? enrollment._id : null;
+  };
+
+  // Forecast chart data
+  const chartData = {
+    labels: prediction?.weekly_forecast?.map(f => `Week ${f.week}`) || ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+    datasets: [
+      {
+        label: 'Risk Score (%)',
+        data: prediction?.weekly_forecast?.map(f => f.risk_pct) || [0, 0, 0, 0],
+        borderColor: 'rgb(255, 99, 132)',
+        backgroundColor: 'rgba(255, 99, 132, 0.5)',
+        tension: 0.3
+      }
+    ]
+  };
+
+  const chartOptions = {
+    responsive: true,
+    plugins: { legend: { position: 'top' }, title: { display: true, text: '4-Week Dropout Risk Forecast' } },
+    scales: { y: { min: 0, max: 100 } }
   };
 
   return (
@@ -140,109 +146,113 @@ const StudentDashboard = () => {
             <div className="seal">E</div>
             <div className="name">E-Learning<em>System</em></div>
           </div>
-          <div className="nav-right">
+          <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <button onClick={() => navigate('/catalog')} style={{ padding: '8px 16px', background: 'transparent', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Courses</button>
+            {user?.risk_badge && (
+              <span className="role-pill" style={{ 
+                background: user.risk_badge === 'High' ? '#fee2e2' : user.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
+                color: user.risk_badge === 'High' ? '#ef4444' : user.risk_badge === 'Medium' ? '#f59e0b' : '#10b981',
+                border: 'none', padding: '4px 12px', borderRadius: '12px', fontWeight: 'bold'
+              }}>
+                Risk: {user.risk_badge} ({user.risk_score?.toFixed(1)}%)
+              </span>
+            )}
             <span className="role-pill student">Student</span>
             <div className="avatar">{getInitials(user?.name)}</div>
-            <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { logout(); navigate('/'); }}>Sign out</button>
           </div>
         </div>
       </div>
 
-      <div className="wrap">
-        <div className="dash-header">
-          <div className="eyebrow">Student Portal</div>
-          <h1>Welcome back, {user?.name?.split(' ')[0]}.</h1>
-          <p>Browse available courses, manage your enrollments, and track your learning progress.</p>
-        </div>
+      <div className="wrap" style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '30px', padding: '30px 20px' }}>
+        
+        {/* MAIN COLUMN */}
+        <div className="main-col">
+          <div className="dash-header" style={{ marginBottom: '30px' }}>
+            <div className="eyebrow">Student Portal</div>
+            <h1>Welcome back, {user?.name?.split(' ')[0]}.</h1>
+            <p>Browse available courses, manage your enrollments, and track your learning progress.</p>
+          </div>
 
-        <div className="section-head">
-          <h2>My Enrolled Courses</h2>
-        </div>
-        <div className="course-grid">
-          {enrolledCourses.length === 0 ? (
-            <div className="empty-state" style={{ gridColumn: '1/-1' }}>
-              You haven't enrolled in any courses yet — browse the catalog below.
-            </div>
-          ) : (
-            enrolledCourses.map(enrollment => (
-              <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer' }}>
-                <div className="badge-enrolled">Enrolled</div>
-                <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }} onClick={(e) => e.stopPropagation()}>
-                  <img
-                    src={enrollment.course_id.thumbnail || fallbackImage}
-                    alt={enrollment.course_id.title}
-                    style={{ height: '100%', width: '100%', objectFit: 'cover' }}
-                    onError={(e) => {
-                      e.target.src = fallbackImage;
-                    }}
-                  />
-                </div>
-                <div className="code">{enrollment.course_id.code} · {enrollment.course_id.category}</div>
-                <h3>{enrollment.course_id.title}</h3>
-                <div className="desc">{enrollment.course_id.description}</div>
-                <div className="meta">
-                  <span>{enrollment.course_id.instructor}</span>
-                  <span className="seats-tag">{enrollment.progress}% complete</span>
-                </div>
-                <div className="progress-section">
-                  <div className="progress-bar">
-                    <div
-                      className="progress-fill"
-                      style={{ width: `${enrollment.progress}%` }}
-                    />
+          {/* Enrolled Courses */}
+          <div className="section-head"><h2>My Enrolled Courses</h2></div>
+          <div className="course-grid" style={{ marginBottom: '40px' }}>
+            {enrolledCourses.length === 0 ? (
+              <div className="empty-state" style={{ gridColumn: '1/-1' }}>You haven't enrolled in any courses yet.</div>
+            ) : (
+              enrolledCourses.map(enrollment => (
+                <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer' }}>
+                  <div className="badge-enrolled">Enrolled</div>
+                  <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }}>
+                    <img src={enrollment.course_id.thumbnail || fallbackImage} alt={enrollment.course_id.title} style={{ height: '100%', width: '100%', objectFit: 'cover' }} onError={(e) => e.target.src = fallbackImage}/>
                   </div>
-                  <div className="progress-text">{enrollment.progress}% complete</div>
+                  <div className="code">{enrollment.course_id.code} · {enrollment.course_id.category}</div>
+                  <h3>{enrollment.course_id.title}</h3>
+                  <div className="desc">{enrollment.course_id.description}</div>
+                  <div className="progress-section" style={{ marginTop: '16px' }}>
+                    <div className="progress-bar"><div className="progress-fill" style={{ width: `${enrollment.progress}%` }}/></div>
+                    <div className="progress-text">{enrollment.progress}% complete</div>
+                  </div>
+                  <div className="actions" onClick={(e) => e.stopPropagation()} style={{ marginTop: '16px' }}>
+                    <button className="btn btn-gold btn-sm" style={{ width: '100%' }} onClick={() => navigate(`/course/${enrollment.course_id._id}`)}>Continue Learning</button>
+                  </div>
                 </div>
-                <div className="actions" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    className="btn btn-gold btn-sm"
-                    style={{ width: '100%' }}
-                    onClick={() => navigate(`/course/${enrollment.course_id._id}`)}
-                  >
-                    Continue Learning
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="section-head">
-          <h2>Open Catalog</h2>
-        </div>
-        <div className="search-bar">
-          <input
-            type="text"
-            placeholder="Search courses by title or code…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-        <div className="course-grid">
-          {filteredCourses.length === 0 ? (
-            <div className="empty-state" style={{ gridColumn: '1/-1' }}>
-              No courses match "{searchQuery}".
-            </div>
-          ) : (
-            filteredCourses
-              .filter(course => !enrolledCourses.find(e => e.course_id._id === course._id))
-              .map(course => (
-                <CourseCard
-                  key={course._id}
-                  course={course}
-                  isEnrolled={false}
-                  onEnroll={() => handleEnroll(course._id)}
-                  onDrop={() => handleDrop(getEnrollmentId(course._id))}
-                  seatsLeft={30 - (enrolledCourses.find(e => e.course_id._id === course._id)?.enrolled_count || 0)}
-                  full={false}
-                />
               ))
+            )}
+          </div>
+
+          {/* KNN Recommendations */}
+          {recommendations.length > 0 && (
+            <>
+              <div className="section-head"><h2>Recommended For You</h2></div>
+              <div className="course-grid" style={{ marginBottom: '40px' }}>
+                {recommendations.map(course => (
+                  <CourseCard key={course._id} course={course} isEnrolled={false} onEnroll={() => handleEnroll(course._id)} onDrop={() => handleDrop(getEnrollmentId(course._id))} seatsLeft={30} full={false} />
+                ))}
+              </div>
+            </>
           )}
+
         </div>
 
-        <footer className="dash-footer">E-LEARNING MANAGEMENT SYSTEM — STUDENT PORTAL</footer>
+        {/* SIDEBAR */}
+        <div className="sidebar" style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+          {/* Chart Widget */}
+          <div className="widget" style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Risk Forecast</h3>
+            {prediction ? (
+              <Line data={chartData} options={chartOptions} />
+            ) : (
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>No forecast data available.</p>
+            )}
+          </div>
+
+          {/* Roadmap Widget */}
+          <div className="widget" style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+            <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Weekly Roadmap (Week 1)</h3>
+            {roadmap && roadmap.tasks && roadmap.tasks.length > 0 ? (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {roadmap.tasks.map((task, idx) => (
+                  <li key={idx} style={{ marginBottom: '10px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                    <input type="checkbox" checked={task.status === 'Completed'} readOnly />
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: '500' }}>{task.task_desc}</div>
+                      <div style={{ fontSize: '12px', color: '#6b7280' }}>{task.day}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>No roadmap generated yet. Complete some activities to generate a personalized roadmap.</p>
+            )}
+          </div>
+        </div>
+
       </div>
 
+      <footer className="dash-footer" style={{ textAlign: 'center', padding: '20px', color: '#9ca3af', marginTop: '40px' }}>
+        E-LEARNING MANAGEMENT SYSTEM — STUDENT PORTAL
+      </footer>
       <Toast message={toastMessage} />
     </div>
   );

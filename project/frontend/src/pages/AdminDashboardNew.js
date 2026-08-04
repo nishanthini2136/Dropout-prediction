@@ -4,103 +4,95 @@ import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
 import axios from 'axios';
+import { Bar, Pie } from 'react-chartjs-2';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend } from 'chart.js';
 import './Dashboard.css';
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const [activeTab, setActiveTab] = useState('courses'); // courses, students, alerts, grading, analytics
   const [courses, setCourses] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
   const [stats, setStats] = useState({ totalCourses: 0, totalEnrollments: 0, totalStudents: 0, seatsRemaining: 0 });
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingCourse, setEditingCourse] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterInstructor, setFilterInstructor] = useState('');
-  const [sortBy, setSortBy] = useState('');
-  const [formData, setFormData] = useState({
-    title: '',
-    code: '',
-    category: 'Computer Science',
-    instructor: '',
-    description: '',
-    duration: '',
-    difficulty: 'Beginner',
-    thumbnail: ''
-  });
-  const [formErrors, setFormErrors] = useState({});
-
+  
+  // Grading state
+  const [assignments, setAssignments] = useState([]);
+  const [selectedCourseForGrading, setSelectedCourseForGrading] = useState('');
+  
   useEffect(() => {
-    fetchCourses();
     fetchStats();
-
-    // Set up real-time stats updates via Server-Sent Events (SSE)
-    const token = localStorage.getItem('token');
-    const eventSource = new EventSource(`http://localhost:5000/api/admin/dashboard/events?token=${token}`);
-
-    eventSource.onmessage = (event) => {
-      console.log('Real-time stats update received via SSE:', event.data);
-      fetchStats();
+    if (activeTab === 'courses') fetchCourses();
+    if (activeTab === 'students' || activeTab === 'alerts') fetchStudents();
+    if (activeTab === 'analytics') fetchAnalytics();
+    if (activeTab === 'grading') {
       fetchCourses();
-    };
-
-    eventSource.onerror = (error) => {
-      console.error('SSE connection error:', error);
-    };
-
-    // Set up polling as a fallback for robustness
-    const interval = setInterval(() => {
-      fetchStats();
-      fetchCourses();
-    }, 30000); // Poll every 30 seconds
-
-    return () => {
-      eventSource.close();
-      clearInterval(interval);
-    };
-  }, []);
-
-  const fetchCourses = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/courses', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      console.log('Courses fetched successfully:', response.data);
-      // Handle both array and object response formats
-      const coursesData = response.data.courses || response.data;
-      setCourses(Array.isArray(coursesData) ? coursesData : []);
-    } catch (error) {
-      console.error('Error fetching courses:', error);
-      console.error('Error response:', error.response);
-      setCourses([]);
     }
-  };
+  }, [activeTab]);
 
   const fetchStats = async () => {
     try {
-      console.log('Fetching stats from backend...');
-      const response = await axios.get('http://localhost:5000/api/admin/dashboard', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      console.log('Stats response received:', response.data);
-      console.log('Response status:', response.status);
-
-      // Handle both response formats (with or without 'stats' wrapper)
+      const response = await axios.get('/api/admin/dashboard', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       const statsData = response.data.stats || response.data;
-      console.log('Parsed stats data:', statsData);
-
-      // Map backend field names to frontend expectations
-      const mappedStats = {
+      setStats({
         totalCourses: statsData.total_courses || 0,
         totalEnrollments: statsData.total_enrollments || 0,
         totalStudents: statsData.total_students || 0,
         seatsRemaining: statsData.seats_remaining || 0
-      };
-      console.log('Mapped stats for frontend:', mappedStats);
-      setStats(mappedStats);
+      });
     } catch (error) {
       console.error('Error fetching stats:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
+    }
+  };
+
+  const fetchCourses = async () => {
+    try {
+      const response = await axios.get('/api/courses', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setCourses(Array.isArray(response.data.courses || response.data) ? (response.data.courses || response.data) : []);
+    } catch (error) {
+      console.error('Error fetching courses:', error);
+    }
+  };
+
+  const fetchStudents = async () => {
+    try {
+      const response = await axios.get('/api/admin/students', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setStudents(response.data.students || []);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+    }
+  };
+
+  const fetchAnalytics = async () => {
+    try {
+      const response = await axios.get('/api/admin/analytics', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setAnalytics(response.data.analytics);
+    } catch (error) {
+      console.error('Error fetching analytics:', error);
+    }
+  };
+
+  const fetchAssignmentsForCourse = async (courseId) => {
+    try {
+      const response = await axios.get(`/api/assignments/course/${courseId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setAssignments(response.data || []);
+    } catch (error) {
+      console.error('Error fetching assignments:', error);
+      setAssignments([]);
+    }
+  };
+
+  const handleRecalculateRisk = async (studentId) => {
+    try {
+      await axios.post(`/api/admin/risk/recalculate`, { student_id: studentId }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      setToastMessage('Risk recalculated successfully.');
+      fetchStudents();
+    } catch (error) {
+      setToastMessage('Error recalculating risk.');
     }
   };
 
@@ -109,143 +101,7 @@ const AdminDashboard = () => {
     navigate('/');
   };
 
-  const openModal = (course = null) => {
-    if (course) {
-      setEditingCourse(course);
-      setFormData({
-        title: course.title,
-        code: course.code,
-        category: course.category,
-        instructor: course.instructor,
-        description: course.description,
-        duration: course.duration,
-        difficulty: course.difficulty,
-        thumbnail: course.thumbnail || ''
-      });
-    } else {
-      setEditingCourse(null);
-      setFormData({
-        title: '',
-        code: '',
-        category: 'Computer Science',
-        instructor: '',
-        description: '',
-        duration: '',
-        difficulty: 'Beginner',
-        thumbnail: ''
-      });
-    }
-    setModalOpen(true);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setEditingCourse(null);
-    setFormErrors({});
-  };
-
-  const validateForm = () => {
-    console.log('Validating form with data:', formData);
-    const errors = {};
-
-    if (!formData.title || !formData.title.trim()) {
-      errors.title = 'Course title is required';
-      console.log('Title validation failed');
-    }
-    if (!formData.code || !formData.code.trim()) {
-      errors.code = 'Course code is required';
-      console.log('Code validation failed');
-    }
-    if (!formData.instructor || !formData.instructor.trim()) {
-      errors.instructor = 'Instructor name is required';
-      console.log('Instructor validation failed');
-    }
-    if (!formData.description || !formData.description.trim()) {
-      errors.description = 'Course description is required';
-      console.log('Description validation failed');
-    }
-    if (!formData.duration || !formData.duration.trim()) {
-      errors.duration = 'Course duration is required';
-      console.log('Duration validation failed');
-    }
-
-    console.log('Validation errors:', errors);
-    setFormErrors(errors);
-    const isValid = Object.keys(errors).length === 0;
-    console.log('Form is valid:', isValid);
-    return isValid;
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    console.log('Form submitted');
-
-    // Validate form before submission
-    if (!validateForm()) {
-      console.log('Validation failed, preventing submission');
-      setToastMessage('Please fill in all required fields');
-      return;
-    }
-
-    console.log('Validation passed, proceeding with submission');
-    try {
-      const token = localStorage.getItem('token');
-      if (editingCourse) {
-        const response = await axios.put(`http://localhost:5000/api/courses/${editingCourse._id}`, formData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log('Course updated successfully:', response.data);
-        setToastMessage('Course updated — students will see the change');
-      } else {
-        const response = await axios.post('http://localhost:5000/api/courses', formData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        console.log('Course published successfully:', response.data);
-        setToastMessage('Course published to student dashboards');
-      }
-      closeModal();
-      fetchCourses();
-      fetchStats();
-    } catch (error) {
-      console.error('Error saving course:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
-      if (error.response) {
-        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
-      } else if (error.request) {
-        setToastMessage('Error: No response from server. Check if backend is running.');
-      } else {
-        setToastMessage(`Error: ${error.message}`);
-      }
-    }
-  };
-
-  const handleDelete = async (courseId) => {
-    if (window.confirm('Are you sure you want to delete this course?')) {
-      try {
-        await axios.delete(`http://localhost:5000/api/courses/${courseId}`, {
-          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-        });
-        setToastMessage('Course removed from the catalog');
-        fetchCourses();
-        fetchStats();
-      } catch (error) {
-        console.error('Error deleting course:', error);
-        setToastMessage('Error deleting course');
-      }
-    }
-  };
-
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
-
-  const getInitials = (name) => {
-    return name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'AD';
-  };
+  const getInitials = (name) => name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'AD';
 
   return (
     <div className="dashboard-screen">
@@ -265,235 +121,205 @@ const AdminDashboard = () => {
 
       <div className="wrap">
         <div className="dash-header">
-          <h1>Course Catalog Dashboard</h1>
-          <p>Manage courses, instructors, enrollments, and student learning from one centralized dashboard.</p>
+          <h1>Admin Dashboard</h1>
+          <p>Manage courses, monitor student risk, and view platform analytics.</p>
         </div>
 
         <div className="stat-row">
-          <div className="stat-card">
-            <div className="icon">📚</div>
-            <div className="num">{stats.totalCourses}</div>
-            <div className="lbl">Active Courses</div>
-          </div>
-          <div className="stat-card">
-            <div className="icon">👥</div>
-            <div className="num">{stats.totalEnrollments}</div>
-            <div className="lbl">Total Enrollments</div>
-          </div>
-          <div className="stat-card">
-            <div className="icon">🎓</div>
-            <div className="num">{stats.totalStudents}</div>
-            <div className="lbl">Registered Students</div>
-          </div>
-          <div className="stat-card">
-            <div className="icon">💺</div>
-            <div className="num">{stats.seatsRemaining}</div>
-            <div className="lbl">Seats Remaining</div>
-          </div>
+          <div className="stat-card"><div className="icon">📚</div><div className="num">{stats.totalCourses}</div><div className="lbl">Active Courses</div></div>
+          <div className="stat-card"><div className="icon">👥</div><div className="num">{stats.totalEnrollments}</div><div className="lbl">Total Enrollments</div></div>
+          <div className="stat-card"><div className="icon">🎓</div><div className="num">{stats.totalStudents}</div><div className="lbl">Registered Students</div></div>
         </div>
 
-        <div className="section-head">
+        {/* Custom Tabs */}
+        <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>
+          <button 
+            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'courses' ? 'bold' : 'normal', color: activeTab === 'courses' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
+            onClick={() => setActiveTab('courses')}
+          >Courses</button>
+          <button 
+            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'students' ? 'bold' : 'normal', color: activeTab === 'students' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
+            onClick={() => setActiveTab('students')}
+          >Students</button>
+          <button 
+            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'alerts' ? 'bold' : 'normal', color: activeTab === 'alerts' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
+            onClick={() => setActiveTab('alerts')}
+          >Alerts</button>
+          <button 
+            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'grading' ? 'bold' : 'normal', color: activeTab === 'grading' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
+            onClick={() => setActiveTab('grading')}
+          >Grading</button>
+          <button 
+            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'analytics' ? 'bold' : 'normal', color: activeTab === 'analytics' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
+            onClick={() => setActiveTab('analytics')}
+          >Analytics</button>
+        </div>
+
+        {/* Tab Contents */}
+        {activeTab === 'courses' && (
           <div>
-            <h2>Course Management</h2>
-            <p className="section-subtitle">Create, edit, and manage courses. Changes are immediately available to all students.</p>
+            <div className="section-head">
+              <h2>Course Catalog</h2>
+              <button className="btn btn-gold btn-sm" onClick={() => navigate('/admin/course/create')}>+ Add Course</button>
+            </div>
+            <table className="admin-table">
+              <thead><tr><th>Course</th><th>Code</th><th>Instructor</th><th>Status</th></tr></thead>
+              <tbody>
+                {courses.map(course => (
+                  <tr key={course._id}>
+                    <td><div className="ttitle">{course.title}</div><div style={{ fontSize: '12px', color: '#9CA3AF' }}>{course.category}</div></td>
+                    <td className="tcode">{course.code}</td>
+                    <td>{course.instructor}</td>
+                    <td><span className={`status-badge ${course.is_active ? 'active' : 'inactive'}`}>{course.is_active ? 'Active' : 'Inactive'}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <button className="btn btn-gold btn-sm" onClick={() => navigate('/admin/course/create')}>+ Add Course</button>
-        </div>
+        )}
 
-        <div className="search-bar">
-          <input type="text" placeholder="Search courses..." />
-          <select 
-            className="toolbar-select" 
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            <option value="">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-          <select 
-            className="toolbar-select" 
-            value={filterInstructor}
-            onChange={(e) => setFilterInstructor(e.target.value)}
-          >
-            <option value="">All Instructors</option>
-          </select>
-          <select 
-            className="toolbar-select" 
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="">Sort By</option>
-            <option value="title">Sort by Title</option>
-            <option value="code">Sort by Code</option>
-            <option value="instructor">Sort by Instructor</option>
-          </select>
-        </div>
+        {activeTab === 'students' && (
+          <div>
+            <div className="section-head">
+              <h2>Student Risk Monitoring</h2>
+              <p>Monitor dropout risk scores generated by the CatBoost model.</p>
+            </div>
+            <table className="admin-table">
+              <thead><tr><th>Student Name</th><th>Email</th><th>Risk Badge</th><th>Risk Score</th><th>Actions</th></tr></thead>
+              <tbody>
+                {students.map(student => (
+                  <tr key={student._id}>
+                    <td>{student.name}</td>
+                    <td>{student.email}</td>
+                    <td>
+                      <span className="role-pill" style={{ 
+                        background: student.risk_badge === 'High' ? '#fee2e2' : student.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
+                        color: student.risk_badge === 'High' ? '#ef4444' : student.risk_badge === 'Medium' ? '#f59e0b' : '#10b981',
+                        border: 'none', padding: '4px 12px', borderRadius: '12px'
+                      }}>
+                        {student.risk_badge || 'Low'}
+                      </span>
+                    </td>
+                    <td>{student.risk_score ? `${student.risk_score.toFixed(1)}%` : 'N/A'}</td>
+                    <td>
+                      <button className="btn btn-sm btn-ghost" onClick={() => handleRecalculateRisk(student._id)}>Recalculate Risk</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Course</th>
-              <th>Code</th>
-              <th>Instructor</th>
-              <th>Status</th>
-              <th style={{ textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {courses.length === 0 ? (
-              <tr>
-                <td colSpan="5">
-                  <div className="empty-state">
-                    <div style={{ fontSize: '64px', marginBottom: '16px' }}>📚</div>
-                    <div style={{ fontSize: '20px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}>No Courses Available</div>
-                    <div style={{ fontSize: '14px', color: '#4B5563', marginBottom: '24px' }}>Start building your learning platform by creating your first course.</div>
-                    <button className="btn btn-gold btn-sm" onClick={() => openModal()}>Add Your First Course</button>
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              courses.map(course => (
-                <tr key={course._id}>
-                  <td>
-                    <div className="ttitle">{course.title}</div>
-                    <div style={{ fontSize: '12px', color: '#9CA3AF', marginTop: '2px' }}>{course.category}</div>
-                  </td>
-                  <td className="tcode">{course.code}</td>
-                  <td>{course.instructor}</td>
-                  <td>
-                    <span className={`status-badge ${course.is_active ? 'active' : 'inactive'}`}>
-                      {course.is_active ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="row-actions">
-                      <button className="icon-btn" title="Edit" onClick={() => openModal(course)}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M12 20h9"/>
-                          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-                        </svg>
-                      </button>
-                      <button className="icon-btn del" title="Delete" onClick={() => handleDelete(course._id)}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M3 6h18"/>
-                          <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/>
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+        {activeTab === 'alerts' && (
+          <div>
+            <div className="section-head">
+              <h2>High Risk Student Alerts</h2>
+              <p>Filtered list of students with 'High' dropout risk.</p>
+            </div>
+            <table className="admin-table">
+              <thead><tr><th>Student Name</th><th>Email</th><th>Risk Score</th><th>Actions</th></tr></thead>
+              <tbody>
+                {students.filter(s => s.risk_badge === 'High').map(student => (
+                  <tr key={student._id}>
+                    <td>{student.name}</td>
+                    <td>{student.email}</td>
+                    <td><span style={{ color: '#ef4444', fontWeight: 'bold' }}>{student.risk_score ? `${student.risk_score.toFixed(1)}%` : 'N/A'}</span></td>
+                    <td><button className="btn btn-sm btn-ghost" onClick={() => handleRecalculateRisk(student._id)}>Recalculate Risk</button></td>
+                  </tr>
+                ))}
+                {students.filter(s => s.risk_badge === 'High').length === 0 && (
+                  <tr><td colSpan="4">No high-risk students found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {activeTab === 'grading' && (
+          <div>
+            <div className="section-head">
+              <h2>Assignment Grading</h2>
+              <p>Select a course to view and grade assignment submissions.</p>
+            </div>
+            <div style={{ marginBottom: '20px' }}>
+              <select 
+                value={selectedCourseForGrading} 
+                onChange={(e) => {
+                  setSelectedCourseForGrading(e.target.value);
+                  if (e.target.value) fetchAssignmentsForCourse(e.target.value);
+                }}
+                style={{ padding: '10px', borderRadius: '5px', border: '1px solid #ccc', minWidth: '300px' }}
+              >
+                <option value="">-- Select a Course --</option>
+                {courses.map(c => <option key={c._id} value={c._id}>{c.title}</option>)}
+              </select>
+            </div>
+            
+            {selectedCourseForGrading && (
+              <div>
+                {assignments.length > 0 ? (
+                  <table className="admin-table">
+                    <thead><tr><th>Assignment Title</th><th>Due Date</th><th>Weight</th><th>Actions</th></tr></thead>
+                    <tbody>
+                      {assignments.map(assign => (
+                        <tr key={assign._id}>
+                          <td>{assign.title}</td>
+                          <td>{new Date(assign.due_date).toLocaleDateString()}</td>
+                          <td>{assign.weight}%</td>
+                          <td>
+                            <button className="btn btn-sm btn-gold">View Submissions</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p>No assignments found for this course.</p>
+                )}
+              </div>
             )}
-          </tbody>
-        </table>
+          </div>
+        )}
+
+        {activeTab === 'analytics' && analytics && (
+          <div>
+            <div className="section-head">
+              <h2>Platform Analytics</h2>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', background: '#fff', padding: '30px', borderRadius: '10px', border: '1px solid #eaeaea' }}>
+              <div>
+                <h3>Risk Distribution</h3>
+                <Pie 
+                  data={{
+                    labels: ['High', 'Medium', 'Low'],
+                    datasets: [{
+                      data: [analytics.risk_distribution.High || 0, analytics.risk_distribution.Medium || 0, analytics.risk_distribution.Low || 0],
+                      backgroundColor: ['#ef4444', '#f59e0b', '#10b981']
+                    }]
+                  }}
+                />
+              </div>
+              <div>
+                <h3>Top Engaged Courses</h3>
+                <Bar 
+                  data={{
+                    labels: analytics.top_courses.map(c => c.title),
+                    datasets: [{
+                      label: 'Enrollments',
+                      data: analytics.top_courses.map(c => c.enrolled_count),
+                      backgroundColor: '#3b82f6'
+                    }]
+                  }}
+                  options={{ responsive: true, scales: { y: { min: 0 } } }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         <footer className="dash-footer">E-LEARNING MANAGEMENT SYSTEM — ADMIN DASHBOARD</footer>
       </div>
-
-      <Modal
-        isOpen={modalOpen}
-        onClose={closeModal}
-        title={editingCourse ? 'Edit Course' : 'Add a New Course'}
-        subtitle="This will appear on every student dashboard immediately after saving."
-        actions={
-          <>
-            <button type="button" className="btn btn-ghost" onClick={closeModal}>Cancel</button>
-            <button type="button" className="btn btn-gold" onClick={handleSubmit}>Save Course</button>
-          </>
-        }
-      >
-        <form id="course-form" onSubmit={(e) => e.preventDefault()}>
-          <div className="field">
-            <label>Course title</label>
-            <input
-              name="title"
-              placeholder="e.g. Introduction to Data Structures"
-              value={formData.title}
-              onChange={handleChange}
-              style={{ borderColor: formErrors.title ? '#EF4444' : '#E5E7EB' }}
-            />
-            {formErrors.title && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.title}</div>}
-          </div>
-          <div className="grid-2">
-            <div className="field">
-              <label>Course code</label>
-              <input
-                name="code"
-                placeholder="e.g. CS-201"
-                value={formData.code}
-                onChange={handleChange}
-                style={{ borderColor: formErrors.code ? '#EF4444' : '#E5E7EB' }}
-              />
-              {formErrors.code && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.code}</div>}
-            </div>
-            <div className="field">
-              <label>Category</label>
-              <select name="category" value={formData.category} onChange={handleChange}>
-                <option>Computer Science</option>
-                <option>Design</option>
-                <option>Business</option>
-                <option>Mathematics</option>
-                <option>Humanities</option>
-              </select>
-            </div>
-          </div>
-          <div className="field">
-            <label>Instructor</label>
-            <input
-              name="instructor"
-              placeholder="e.g. Dr. Lena Ortiz"
-              value={formData.instructor}
-              onChange={handleChange}
-              style={{ borderColor: formErrors.instructor ? '#EF4444' : '#E5E7EB' }}
-            />
-            {formErrors.instructor && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.instructor}</div>}
-          </div>
-          <div className="field">
-            <label>Short description</label>
-            <textarea
-              name="description"
-              rows="3"
-              placeholder="One or two sentences about the course"
-              value={formData.description}
-              onChange={handleChange}
-              style={{ borderColor: formErrors.description ? '#EF4444' : '#E5E7EB' }}
-            />
-            {formErrors.description && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.description}</div>}
-          </div>
-          <div className="field">
-            <label>Thumbnail Image URL</label>
-            <input
-              name="thumbnail"
-              placeholder="e.g. /static/uploads/image.png or a web image URL"
-              value={formData.thumbnail}
-              onChange={handleChange}
-            />
-          </div>
-          <div className="grid-2">
-            <div className="field">
-              <label>Duration</label>
-              <input
-                name="duration"
-                placeholder="e.g. 8 weeks"
-                value={formData.duration}
-                onChange={handleChange}
-                style={{ borderColor: formErrors.duration ? '#EF4444' : '#E5E7EB' }}
-              />
-              {formErrors.duration && <div style={{ color: '#EF4444', fontSize: '12px', marginTop: '4px' }}>{formErrors.duration}</div>}
-            </div>
-            <div className="field">
-              <label>Difficulty</label>
-              <select name="difficulty" value={formData.difficulty} onChange={handleChange}>
-                <option>Beginner</option>
-                <option>Intermediate</option>
-                <option>Advanced</option>
-              </select>
-            </div>
-          </div>
-        </form>
-      </Modal>
-
       <Toast message={toastMessage} />
     </div>
   );

@@ -9,6 +9,15 @@ class User:
     def create_user(self, user_data):
         user_data['created_at'] = datetime.utcnow()
         user_data['updated_at'] = datetime.utcnow()
+        user_data['last_active_at'] = datetime.utcnow()
+        
+        # Initialize default risk fields for students
+        if user_data.get('role') == 'student':
+            if 'risk_badge' not in user_data:
+                user_data['risk_badge'] = 'Low'
+            if 'risk_score' not in user_data:
+                user_data['risk_score'] = 0.0
+                
         result = self.collection.insert_one(user_data)
         return str(result.inserted_id)
     

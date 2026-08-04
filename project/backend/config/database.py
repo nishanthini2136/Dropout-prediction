@@ -23,6 +23,10 @@ class Database:
         if self.db is None:
             self.connect()
         return self.db
+
+    def get_collection(self, name: str):
+        """Shorthand to get a named collection from the connected database."""
+        return self.get_db()[name]
     
     def close(self):
         if self.client:

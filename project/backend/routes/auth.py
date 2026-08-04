@@ -72,6 +72,29 @@ def login():
         # Verify password
         if not AuthUtils.verify_password(data['password'], user['password']):
             return jsonify({'error': 'Invalid credentials'}), 401
+            
+        user_id_str = str(user['_id'])
+            
+        # Log engagement and trigger risk engine for students
+        if user.get('role') == 'student':
+            from models.engagement import EngagementModel
+            from services.risk_engine import RiskEngine
+            
+            EngagementModel().log_event(
+                student_id=user_id_str,
+                course_id=None,
+                module_id=None,
+                event_type='login'
+            )
+            
+            try:
+                risk_engine = RiskEngine()
+                risk_engine.predict_risk(user_id_str)
+            except Exception as e:
+                print(f"Failed to trigger risk engine on login: {e}")
+                
+        # Re-fetch user in case risk_badge was updated
+        user = user_model.find_by_id(user_id_str)
         
         # Generate token
         token = AuthUtils.generate_token(user['_id'], user['role'])
@@ -80,10 +103,12 @@ def login():
             'message': 'Login successful',
             'token': token,
             'user': {
-                'id': str(user['_id']),
-                'name': user['name'],
-                'email': user['email'],
-                'role': user['role']
+                'id': user_id_str,
+                'name': user.get('name'),
+                'email': user.get('email'),
+                'role': user.get('role'),
+                'risk_badge': user.get('risk_badge'),
+                'risk_score': user.get('risk_score')
             }
         }), 200
         
@@ -119,11 +144,13 @@ def get_current_user():
         return jsonify({
             'user': {
                 'id': str(user['_id']),
-                'name': user['name'],
-                'email': user['email'],
-                'role': user['role'],
+                'name': user.get('name'),
+                'email': user.get('email'),
+                'role': user.get('role'),
                 'phone': user.get('phone', ''),
-                'bio': user.get('bio', '')
+                'bio': user.get('bio', ''),
+                'risk_badge': user.get('risk_badge'),
+                'risk_score': user.get('risk_score')
             }
         }), 200
         

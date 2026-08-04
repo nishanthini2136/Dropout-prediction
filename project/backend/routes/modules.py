@@ -1,14 +1,14 @@
 from config.database import db
 from bson.objectid import ObjectId
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from utils.auth import admin_required
 from models.module import ModuleModel
 from utils.notifier import stats_notifier
 
 modules_bp = Blueprint('modules', __name__, url_prefix='/api/admin/modules')
 
 @modules_bp.route('', methods=['POST'])
-@jwt_required()
+@admin_required
 def create_module():
     data = request.get_json()
     course_id = data.get('course_id')
@@ -23,7 +23,7 @@ def create_module():
     return jsonify(module), 201
 
 @modules_bp.route('/<module_id>', methods=['PUT'])
-@jwt_required()
+@admin_required
 def update_module(module_id):
     data = request.get_json()
     module = ModuleModel().update_module(module_id, data)
@@ -31,14 +31,14 @@ def update_module(module_id):
     return jsonify(module), 200
 
 @modules_bp.route('/<module_id>', methods=['DELETE'])
-@jwt_required()
+@admin_required
 def delete_module(module_id):
     result = ModuleModel().delete_module(module_id)
     stats_notifier.notify()
     return jsonify({'deleted_count': result.deleted_count}), 200
 
 @modules_bp.route('/<module_id>/move', methods=['PATCH'])
-@jwt_required()
+@admin_required
 def move_module(module_id):
     direction = request.args.get('direction')  # 'up' or 'down'
     if direction not in ('up', 'down'):
@@ -48,7 +48,7 @@ def move_module(module_id):
     return jsonify(modules), 200
 
 @modules_bp.route('/course/<course_id>', methods=['GET'])
-@jwt_required()
+@admin_required
 def list_modules(course_id):
     modules = ModuleModel().get_modules_by_course(course_id)
     return jsonify(modules), 200

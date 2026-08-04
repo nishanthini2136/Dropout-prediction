@@ -14,6 +14,9 @@ class Course:
                 course_data['is_active'] = course_data['is_active'].lower() == 'true'
         else:
             course_data['is_active'] = True
+            
+        if 'credits' not in course_data:
+            course_data['credits'] = 30 # default credits
         result = self.collection.insert_one(course_data)
         return str(result.inserted_id)
     

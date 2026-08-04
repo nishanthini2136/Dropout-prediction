@@ -40,6 +40,41 @@
   color: var(--gold);
 }
 
+.brandmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brandmark .seal {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+.brandmark .name {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+}
+
+.brandmark .name em {
+  font-style: italic;
+  color: var(--gold);
+  font-weight: 500;
+}
+
 .ledger-index {
   font-family: var(--mono);
   font-size: 12px;

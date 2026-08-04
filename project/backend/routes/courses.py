@@ -56,7 +56,7 @@ def create_course():
             data = request.get_json()
         else:
             data = request.form.to_dict()
-            for json_field in ['modules', 'completionCriteria', 'learningConfig', 'discussionTopics']:
+            for json_field in ['modules', 'completionCriteria', 'learningConfig', 'discussionTopics', 'syllabus', 'prerequisites']:
                 if json_field in data:
                     try:
                         data[json_field] = json.loads(data[json_field])
@@ -116,7 +116,7 @@ def update_course(course_id):
             data = request.get_json()
         else:
             data = request.form.to_dict()
-            for json_field in ['modules', 'completionCriteria', 'learningConfig', 'discussionTopics']:
+            for json_field in ['modules', 'completionCriteria', 'learningConfig', 'discussionTopics', 'syllabus', 'prerequisites']:
                 if json_field in data:
                     try:
                         data[json_field] = json.loads(data[json_field])
