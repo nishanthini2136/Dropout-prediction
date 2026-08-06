@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './Dashboard.css';
+import Navbar from '../components/Navbar';
 import Toast from '../components/Toast';
 
 const CourseCreator = () => {
@@ -465,19 +466,7 @@ const CourseCreator = () => {
 
   return (
     <div className="dashboard-screen">
-      <div className="dash-nav">
-        <div className="wrap">
-          <div className="brandmark">
-            <div className="seal">E</div>
-            <div className="name">E-Learning<em>System</em></div>
-          </div>
-          <div className="nav-right">
-            <span className="role-pill admin">Administrator</span>
-            <div className="avatar">AD</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/')}>Sign out</button>
-          </div>
-        </div>
-      </div>
+      <Navbar />
 
       <div className="wrap">
         <div className="dash-header">

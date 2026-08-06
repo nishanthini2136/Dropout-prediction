@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import CourseCard from '../components/CourseCard';
+import Navbar from '../components/Navbar';
 import Toast from '../components/Toast';
 import axios from 'axios';
 import { Line } from 'react-chartjs-2';
@@ -140,29 +141,7 @@ const StudentDashboard = () => {
 
   return (
     <div className="dashboard-screen">
-      <div className="dash-nav">
-        <div className="wrap">
-          <div className="brandmark">
-            <div className="seal">E</div>
-            <div className="name">E-Learning<em>System</em></div>
-          </div>
-          <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <button onClick={() => navigate('/catalog')} style={{ padding: '8px 16px', background: 'transparent', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Courses</button>
-            {user?.risk_badge && (
-              <span className="role-pill" style={{ 
-                background: user.risk_badge === 'High' ? '#fee2e2' : user.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
-                color: user.risk_badge === 'High' ? '#ef4444' : user.risk_badge === 'Medium' ? '#f59e0b' : '#10b981',
-                border: 'none', padding: '4px 12px', borderRadius: '12px', fontWeight: 'bold'
-              }}>
-                Risk: {user.risk_badge} ({user.risk_score?.toFixed(1)}%)
-              </span>
-            )}
-            <span className="role-pill student">Student</span>
-            <div className="avatar">{getInitials(user?.name)}</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => { logout(); navigate('/'); }}>Sign out</button>
-          </div>
-        </div>
-      </div>
+      <Navbar />
 
       <div className="wrap" style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '30px', padding: '30px 20px' }}>
         

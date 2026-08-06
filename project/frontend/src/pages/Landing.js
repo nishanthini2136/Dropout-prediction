@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import Navbar from '../components/Navbar';
 import './Landing.css';
 
 const Landing = () => {
@@ -19,18 +20,7 @@ const Landing = () => {
 
   return (
     <div className="landing-screen">
-      {/* Navigation */}
-      <nav className="navbar" style={{ display: 'flex', justifyContent: 'space-between', padding: '20px 40px', backgroundColor: '#fff', borderBottom: '1px solid #eaeaea' }}>
-        <div className="brandmark" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div className="seal" style={{ background: '#3b82f6', color: '#fff', width: '32px', height: '32px', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>E</div>
-          <div className="name" style={{ fontWeight: '600', fontSize: '18px', color: '#111827' }}>E-Learning<em>System</em></div>
-        </div>
-        <div className="nav-actions" style={{ display: 'flex', gap: '15px' }}>
-          <button onClick={() => navigate('/catalog')} style={{ padding: '8px 16px', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: '500', color: '#111827' }}>Courses</button>
-          <button onClick={() => navigate('/student/login')} style={{ padding: '8px 16px', background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: '500', color: '#111827' }}>Login</button>
-          <button onClick={() => navigate('/student/register')} style={{ padding: '8px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '500' }}>Register</button>
-        </div>
-      </nav>
+      <Navbar />
 
       {/* Hero Section */}
       <div className="hero wrap" style={{ textAlign: 'center', padding: '60px 20px' }}>

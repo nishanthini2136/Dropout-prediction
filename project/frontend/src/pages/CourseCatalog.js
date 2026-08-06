@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import CourseCard from '../components/CourseCard';
+import Navbar from '../components/Navbar';
 import Toast from '../components/Toast';
 import './Dashboard.css'; // Reuse dashboard styles for layout
 
@@ -93,31 +94,7 @@ const CourseCatalog = () => {
 
   return (
     <div className="dashboard-screen">
-      {/* Navigation */}
-      <div className="dash-nav">
-        <div className="wrap">
-          <div className="brandmark" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
-            <div className="seal">E</div>
-            <div className="name">E-Learning<em>System</em></div>
-          </div>
-          <div className="nav-actions" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-            <button onClick={() => navigate('/catalog')} style={{ padding: '8px 16px', background: 'transparent', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Courses</button>
-            
-            {user ? (
-              <>
-                <button onClick={() => navigate(`/${user.role}/dashboard`)} style={{ padding: '8px 16px', background: 'transparent', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Dashboard</button>
-                <div className="avatar" style={{ width: '32px', height: '32px', fontSize: '12px' }}>{getInitials(user.name)}</div>
-                <button className="btn btn-ghost btn-sm" style={{ borderColor: 'rgba(255,255,255,0.2)', color: '#fff' }} onClick={() => { logout(); navigate('/'); }}>Sign out</button>
-              </>
-            ) : (
-              <>
-                <button onClick={() => navigate('/student/login')} style={{ padding: '8px 16px', background: 'transparent', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: '500' }}>Login</button>
-                <button onClick={() => navigate('/student/register')} style={{ padding: '8px 16px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '500' }}>Register</button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <Navbar />
 
       <div className="wrap" style={{ padding: '40px 20px' }}>
         <div className="dash-header" style={{ textAlign: 'center', marginBottom: '40px' }}>

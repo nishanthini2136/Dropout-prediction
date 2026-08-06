@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
+import Navbar from '../components/Navbar';
 import Toast from '../components/Toast';
 import axios from 'axios';
 import { Bar, Pie } from 'react-chartjs-2';
@@ -105,19 +106,7 @@ const AdminDashboard = () => {
 
   return (
     <div className="dashboard-screen">
-      <div className="dash-nav">
-        <div className="wrap">
-          <div className="brandmark">
-            <div className="seal">E</div>
-            <div className="name">E-Learning<em>System</em></div>
-          </div>
-          <div className="nav-right">
-            <span className="role-pill admin">Administrator</span>
-            <div className="avatar">{getInitials(user?.name)}</div>
-            <button className="btn btn-ghost btn-sm" onClick={handleLogout}>Sign out</button>
-          </div>
-        </div>
-      </div>
+      <Navbar />
 
       <div className="wrap">
         <div className="dash-header">
