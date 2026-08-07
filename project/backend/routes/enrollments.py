@@ -61,18 +61,36 @@ def get_my_enrollments():
     try:
         enrollment_model = Enrollment()
         course_model = Course()
+        from models.prediction import PredictionModel
+        from services.risk_engine import RiskEngine
         
         enrollments = enrollment_model.get_student_enrollments(request.current_user_id)
         
-        # Get course details for each enrollment
         my_courses = []
         for enrollment in enrollments:
             course = course_model.find_by_id(enrollment['course_id'])
             if course:
-                course['_id'] = str(course['_id'])
+                c_id_str = str(course['_id'])
+                course['_id'] = c_id_str
                 enrollment['_id'] = str(enrollment['_id'])
-                enrollment['course_id'] = course  # Nest full course dict in 'course_id' field instead of string
+                enrollment['course_id'] = course
                 enrollment['student_id'] = str(enrollment['student_id'])
+                
+                # Fetch per-course prediction
+                pred = PredictionModel().get_prediction(request.current_user_id, c_id_str)
+                if not pred:
+                    pred = RiskEngine().predict_risk(request.current_user_id, c_id_str)
+                
+                if pred:
+                    enrollment['risk_badge'] = pred.get('risk_level', 'Medium')
+                    score_val = pred.get('risk_score')
+                    if score_val is None:
+                        score_val = pred.get('risk_probability', 0.5) * 100
+                    enrollment['risk_score'] = float(score_val)
+                else:
+                    enrollment['risk_badge'] = 'Medium'
+                    enrollment['risk_score'] = 50.0
+                    
                 my_courses.append(enrollment)
         
         return jsonify(my_courses), 200
@@ -145,6 +163,36 @@ def update_lesson_progress(enrollment_id):
             return jsonify({'error': 'Failed to update lesson progress'}), 500
             
     except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@enrollments_bp.route('/api/enrollments/<enrollment_id>/module-progress', methods=['PUT'])
+@student_required
+def update_module_progress(enrollment_id):
+    """Recalculate progress based on completed modules (video watched or quiz completed)"""
+    try:
+        enrollment_model = Enrollment()
+        course_model = Course()
+        
+        enrollment = enrollment_model.collection.find_one({'_id': ObjectId(enrollment_id)})
+        if not enrollment:
+            return jsonify({'error': 'Enrollment not found'}), 404
+        
+        print(f"Updating module progress for enrollment {enrollment_id}, course {enrollment['course_id']}")
+            
+        success = enrollment_model.update_module_progress(enrollment_id, enrollment['course_id'])
+        
+        if success:
+            # Return the updated progress
+            updated_enrollment = enrollment_model.collection.find_one({'_id': ObjectId(enrollment_id)})
+            return jsonify({
+                'message': 'Module progress updated successfully',
+                'progress': updated_enrollment.get('progress', 0)
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to update module progress'}), 500
+            
+    except Exception as e:
+        print(f"Error updating module progress: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @enrollments_bp.route('/api/enrollments/<enrollment_id>', methods=['DELETE'])

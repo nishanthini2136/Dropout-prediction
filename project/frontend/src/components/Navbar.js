@@ -71,16 +71,6 @@ const Navbar = () => {
                 Dashboard
               </button>
 
-              {/* Student Risk Pill if student */}
-              {user.role === 'student' && user.risk_badge && (
-                <span className="role-pill" style={{ 
-                  background: user.risk_badge === 'High' ? '#fee2e2' : user.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
-                  color: user.risk_badge === 'High' ? '#ef4444' : user.risk_badge === 'Medium' ? '#f59e0b' : '#10b981',
-                  border: 'none', padding: '4px 12px', borderRadius: '12px', fontWeight: 'bold', fontSize: '12px'
-                }}>
-                  Risk: {user.risk_badge} ({user.risk_score?.toFixed(1)}%)
-                </span>
-              )}
 
               {/* Role Pill */}
               <span className={`role-pill ${user.role}`} style={{

@@ -17,7 +17,8 @@ const StudentDashboard = () => {
   const [courses, setCourses] = useState([]);
   const [enrolledCourses, setEnrolledCourses] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
-  const [prediction, setPrediction] = useState(null);
+  const [predictionsMap, setPredictionsMap] = useState({});
+  const [selectedCourseId, setSelectedCourseId] = useState('');
   const [roadmap, setRoadmap] = useState(null);
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -29,16 +30,15 @@ const StudentDashboard = () => {
     fetchEnrolledCourses();
     fetchRecommendations();
     fetchDashboardStats();
-    fetchRoadmap(1); // Default week 1
-
-    const interval = setInterval(() => {
-      fetchCourses();
-      fetchEnrolledCourses();
-      fetchDashboardStats();
-    }, 60000);
-
-    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (enrolledCourses.length > 0 && !selectedCourseId) {
+      const firstCourseId = enrolledCourses[0].course_id._id;
+      setSelectedCourseId(firstCourseId);
+      fetchRoadmap(1, firstCourseId);
+    }
+  }, [enrolledCourses]);
 
   const fetchCourses = async () => {
     try {
@@ -53,7 +53,13 @@ const StudentDashboard = () => {
   const fetchEnrolledCourses = async () => {
     try {
       const response = await axios.get('/api/enrollments/my-courses', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-      setEnrolledCourses(Array.isArray(response.data) ? response.data : []);
+      const data = Array.isArray(response.data) ? response.data : [];
+      setEnrolledCourses(data);
+      if (data.length > 0 && !selectedCourseId) {
+        const cId = data[0].course_id._id;
+        setSelectedCourseId(cId);
+        fetchRoadmap(1, cId);
+      }
     } catch (error) {
       console.error('Error fetching enrolled courses:', error);
       setEnrolledCourses([]);
@@ -72,15 +78,16 @@ const StudentDashboard = () => {
   const fetchDashboardStats = async () => {
     try {
       const response = await axios.get('/api/student/dashboard/stats', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-      setPrediction(response.data.prediction);
+      setPredictionsMap(response.data.predictions || {});
     } catch (error) {
       console.error('Error fetching stats:', error);
     }
   };
 
-  const fetchRoadmap = async (week) => {
+  const fetchRoadmap = async (week = 1, courseId = selectedCourseId) => {
     try {
-      const response = await axios.get(`/api/student/roadmap/${week}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const url = courseId ? `/api/student/roadmap/${week}?course_id=${courseId}` : `/api/student/roadmap/${week}`;
+      const response = await axios.get(url, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       setRoadmap(response.data.roadmap);
     } catch (error) {
       console.error('Error fetching roadmap:', error);
@@ -94,6 +101,7 @@ const StudentDashboard = () => {
       fetchCourses();
       fetchEnrolledCourses();
       fetchRecommendations();
+      fetchDashboardStats();
     } catch (error) {
       setToastMessage('Error enrolling course');
     }
@@ -107,6 +115,7 @@ const StudentDashboard = () => {
         fetchCourses();
         fetchEnrolledCourses();
         fetchRecommendations();
+        fetchDashboardStats();
       } catch (error) {
         setToastMessage('Error dropping course');
       }
@@ -119,13 +128,16 @@ const StudentDashboard = () => {
     return enrollment ? enrollment._id : null;
   };
 
-  // Forecast chart data
+  // Selected course prediction & forecast chart
+  const currentPrediction = selectedCourseId ? (predictionsMap[selectedCourseId] || Object.values(predictionsMap)[0]) : Object.values(predictionsMap)[0];
+  const selectedCourseDoc = enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.course_id;
+
   const chartData = {
-    labels: prediction?.weekly_forecast?.map(f => `Week ${f.week}`) || ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+    labels: currentPrediction?.weekly_forecast?.map(f => `Week ${f.week}`) || ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
     datasets: [
       {
         label: 'Risk Score (%)',
-        data: prediction?.weekly_forecast?.map(f => f.risk_pct) || [0, 0, 0, 0],
+        data: currentPrediction?.weekly_forecast?.map(f => f.risk_pct) || [0, 0, 0, 0],
         borderColor: 'rgb(255, 99, 132)',
         backgroundColor: 'rgba(255, 99, 132, 0.5)',
         tension: 0.3
@@ -135,7 +147,7 @@ const StudentDashboard = () => {
 
   const chartOptions = {
     responsive: true,
-    plugins: { legend: { position: 'top' }, title: { display: true, text: '4-Week Dropout Risk Forecast' } },
+    plugins: { legend: { position: 'top' }, title: { display: true, text: `Dropout Risk Forecast (${selectedCourseDoc?.title || 'Selected Course'})` } },
     scales: { y: { min: 0, max: 100 } }
   };
 
@@ -143,14 +155,14 @@ const StudentDashboard = () => {
     <div className="dashboard-screen">
       <Navbar />
 
-      <div className="wrap" style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '30px', padding: '30px 20px' }}>
+      <div className="wrap" style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: '30px', padding: '30px 20px' }}>
         
         {/* MAIN COLUMN */}
         <div className="main-col">
           <div className="dash-header" style={{ marginBottom: '30px' }}>
             <div className="eyebrow">Student Portal</div>
             <h1>Welcome back, {user?.name?.split(' ')[0]}.</h1>
-            <p>Browse available courses, manage your enrollments, and track your learning progress.</p>
+            <p>Browse available courses, manage your enrollments, and track your per-course risk analytics.</p>
           </div>
 
           {/* Enrolled Courses */}
@@ -160,8 +172,28 @@ const StudentDashboard = () => {
               <div className="empty-state" style={{ gridColumn: '1/-1' }}>You haven't enrolled in any courses yet.</div>
             ) : (
               enrolledCourses.map(enrollment => (
-                <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer' }}>
-                  <div className="badge-enrolled">Enrolled</div>
+                <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer', position: 'relative' }}>
+                  
+                  {/* Per-Course Risk Badge */}
+                  {enrollment.risk_badge && (
+                    <span style={{ 
+                      position: 'absolute', 
+                      top: '12px', 
+                      right: '12px', 
+                      zIndex: 2,
+                      background: enrollment.risk_badge === 'High' ? '#fee2e2' : enrollment.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
+                      color: enrollment.risk_badge === 'High' ? '#ef4444' : enrollment.risk_badge === 'Medium' ? '#f59e0b' : '#10b981',
+                      padding: '4px 10px', 
+                      borderRadius: '12px', 
+                      fontWeight: 'bold', 
+                      fontSize: '11px',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}>
+                      Risk: {enrollment.risk_badge} ({enrollment.risk_score?.toFixed(1)}%)
+                    </span>
+                  )}
+
+                  <div className="badge-enrolled" style={{ marginTop: enrollment.risk_badge ? '28px' : '0' }}>Enrolled</div>
                   <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }}>
                     <img src={enrollment.course_id.thumbnail || fallbackImage} alt={enrollment.course_id.title} style={{ height: '100%', width: '100%', objectFit: 'cover' }} onError={(e) => e.target.src = fallbackImage}/>
                   </div>
@@ -195,14 +227,37 @@ const StudentDashboard = () => {
         </div>
 
         {/* SIDEBAR */}
-        <div className="sidebar" style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
+        <div className="sidebar" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          {/* Course Selector Dropdown */}
+          {enrolledCourses.length > 0 && (
+            <div className="widget" style={{ background: '#fff', padding: '16px 20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+              <label style={{ fontSize: '12px', fontWeight: '700', color: '#4b5563', display: 'block', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Course Analytics Selector:</label>
+              <select
+                value={selectedCourseId}
+                onChange={(e) => {
+                  const newId = e.target.value;
+                  setSelectedCourseId(newId);
+                  fetchRoadmap(1, newId);
+                }}
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #d1d5db', fontSize: '14px', background: '#f9fafb', fontWeight: '500' }}
+              >
+                {enrolledCourses.map(e => (
+                  <option key={e.course_id._id} value={e.course_id._id}>
+                    {e.course_id.title} ({e.course_id.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Chart Widget */}
           <div className="widget" style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
             <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Risk Forecast</h3>
-            {prediction ? (
+            {currentPrediction ? (
               <Line data={chartData} options={chartOptions} />
             ) : (
-              <p style={{ color: '#6b7280', fontSize: '14px' }}>No forecast data available.</p>
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>No forecast data available for selected course.</p>
             )}
           </div>
 
@@ -222,7 +277,7 @@ const StudentDashboard = () => {
                 ))}
               </ul>
             ) : (
-              <p style={{ color: '#6b7280', fontSize: '14px' }}>No roadmap generated yet. Complete some activities to generate a personalized roadmap.</p>
+              <p style={{ color: '#6b7280', fontSize: '14px' }}>No roadmap generated yet for selected course.</p>
             )}
           </div>
         </div>

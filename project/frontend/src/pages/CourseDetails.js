@@ -34,6 +34,7 @@ const CourseDetails = () => {
   const [userAnswers, setUserAnswers] = useState({});
   const [quizResults, setQuizResults] = useState({});
   const [completedModuleIds, setCompletedModuleIds] = useState([]);
+  const [videoWatchedModuleIds, setVideoWatchedModuleIds] = useState([]);
   const [unlockedModuleIds, setUnlockedModuleIds] = useState([]);
   const [autoNavCountdown, setAutoNavCountdown] = useState(0);
   const [isAutoNavigating, setIsAutoNavigating] = useState(false);
@@ -132,36 +133,56 @@ const CourseDetails = () => {
 
   const fetchStudentProgress = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/student/progress', {
+      const res = await axios.get(`http://localhost:5000/api/student/progress?course_id=${id}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       if (res.data) {
-        const completed = [];
+        const quizDone = [];
+        const videoDone = [];
         Object.keys(res.data).forEach(modId => {
           if (res.data[modId].quiz_completed) {
-            completed.push(String(modId));
+            quizDone.push(String(modId));
+          }
+          if (res.data[modId].video_watched) {
+            videoDone.push(String(modId));
           }
         });
-        setCompletedModuleIds(completed);
+        setCompletedModuleIds(quizDone);
+        setVideoWatchedModuleIds(videoDone);
       }
     } catch (e) {
       console.log('Error fetching student progress:', e);
     }
   };
 
-  const isModuleUnlocked = (moduleObj, index) => {
-    if (index === 0) return true;
-    const allMods = course?.modules || [];
-    const prevModule = allMods[index - 1];
-    if (!prevModule) return true;
-    const prevId = String(prevModule._id || prevModule.id);
-    const thisId = String(moduleObj._id || moduleObj.id);
-    return completedModuleIds.includes(prevId) || unlockedModuleIds.includes(thisId);
+  const getModuleIdVariants = (moduleObj) => {
+    if (!moduleObj) return [];
+    const ids = [];
+    if (moduleObj._id !== undefined && moduleObj._id !== null) ids.push(String(moduleObj._id));
+    if (moduleObj.id !== undefined && moduleObj.id !== null) ids.push(String(moduleObj.id));
+    return Array.from(new Set(ids));
   };
 
   const isModuleCompleted = (moduleObj) => {
-    const modId = String(moduleObj._id || moduleObj.id);
-    return completedModuleIds.includes(modId);
+    if (!moduleObj) return false;
+    const variants = getModuleIdVariants(moduleObj);
+    // A module is "Done" if its quiz is completed OR its video has been watched
+    return variants.some(id => completedModuleIds.includes(id) || videoWatchedModuleIds.includes(id));
+  };
+
+  const isModuleUnlocked = (moduleObj, index) => {
+    if (index === 0) return true;
+    if (isModuleCompleted(moduleObj)) return true;
+
+    const allMods = course?.modules || modules || [];
+    const prevModule = allMods[index - 1];
+    if (!prevModule) return true;
+
+    const prevCompleted = isModuleCompleted(prevModule);
+    const variants = getModuleIdVariants(moduleObj);
+    const inUnlockedState = variants.some(id => unlockedModuleIds.includes(id));
+
+    return prevCompleted || inUnlockedState;
   };
 
   const checkEnrollment = async () => {
@@ -254,7 +275,7 @@ const CourseDetails = () => {
   // Fetch quiz for a module after video completion
   const fetchQuiz = async (moduleId) => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/student/module/${moduleId}/quiz`, {
+      const response = await axios.get(`http://localhost:5000/api/student/module/${moduleId}/quiz?course_id=${id}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       console.log('Quiz fetched:', response.data);
@@ -284,20 +305,38 @@ const CourseDetails = () => {
       try {
         await axios.post(
           `http://localhost:5000/api/student/module/${activeModule._id || activeModule.id}/watch`,
-          {},
+          { course_id: id },
           { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
         );
         console.log('Video marked as watched in ProgressModel');
+
+        // 3. Immediately update sidebar badge: mark this module's id variants as video-watched
+        const watchedVariants = getModuleIdVariants(activeModule);
+        const updatedVideoWatched = Array.from(new Set([...videoWatchedModuleIds, ...watchedVariants]));
+        setVideoWatchedModuleIds(updatedVideoWatched);
+
+        // 4. Recalculate enrollment progress percentage using backend
+        if (enrollment?._id) {
+          try {
+            await axios.put(`http://localhost:5000/api/enrollments/${enrollment._id}/module-progress`, {}, {
+              headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
+            // Refresh enrollment to get updated progress
+            await checkEnrollment();
+          } catch (e) {
+            console.error('Error updating enrollment progress:', e);
+          }
+        }
       } catch (err) {
         console.error('Error marking video as watched:', err);
       }
 
-      // 3. Close the video modal and fetch the quiz
+      // 5. Close the video modal and fetch the quiz
       setShowVideoPlayer(false);
       setToastMessage('🎉 Video completed! Quiz is now unlocked below.');
       await fetchQuiz(activeModule._id || activeModule.id);
 
-      // 4. Scroll to quiz section smoothly
+      // 6. Scroll to quiz section smoothly
       setTimeout(() => {
         const quizSection = document.getElementById('quiz-section');
         if (quizSection) quizSection.scrollIntoView({ behavior: 'smooth' });
@@ -412,19 +451,35 @@ const CourseDetails = () => {
         console.error('Error saving quiz submit:', err);
       }
 
-      setCompletedModuleIds(prev => Array.from(new Set([...prev, currentModId])));
+      const activeVariants = getModuleIdVariants(activeModule);
+      setCompletedModuleIds(prev => Array.from(new Set([...prev, ...activeVariants, currentModId])));
+
+      // Update enrollment overall progress percentage using backend
+      if (enrollment?._id) {
+        try {
+          await axios.put(
+            `http://localhost:5000/api/enrollments/${enrollment._id}/module-progress`,
+            {},
+            { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+          );
+          // Refresh enrollment to get updated progress
+          await checkEnrollment();
+        } catch (e) {
+          console.error('Error updating enrollment progress:', e);
+        }
+      }
     }
 
     setToastMessage(`🎉 Quiz submitted! Score: ${correctCount}/${total} (${percentage}%)`);
 
-    // Auto-unlock next module
+    // Auto-unlock next module if available
     const allMods = course?.modules || modules;
     if (allMods && activeModule) {
-      const curIdx = allMods.findIndex(m => String(m._id || m.id) === currentModId);
+      const curIdx = allMods.findIndex(m => getModuleIdVariants(m).includes(currentModId));
       if (curIdx !== -1 && curIdx < allMods.length - 1) {
         const nextMod = allMods[curIdx + 1];
-        const nextId = String(nextMod._id || nextMod.id);
-        setUnlockedModuleIds(prev => Array.from(new Set([...prev, nextId])));
+        const nextVariants = getModuleIdVariants(nextMod);
+        setUnlockedModuleIds(prev => Array.from(new Set([...prev, ...nextVariants])));
         setAutoNavCountdown(5);
         setIsAutoNavigating(true);
       }
