@@ -92,12 +92,29 @@ def dashboard_events():
 def get_students():
     try:
         user_model = User()
+        from services.risk_engine import RiskEngine
+        risk_engine = RiskEngine()
         students = user_model.get_all_students()
+        
         for student in students:
-            student['_id'] = str(student['_id'])
-            # Don't send password hash
+            s_id = str(student['_id'])
+            student['_id'] = s_id
             if 'password' in student:
                 del student['password']
+
+            # Compute or fetch up-to-date risk badge, score, and last_calculated for student
+            badge, score, last_calc = risk_engine.update_user_overall_risk(s_id)
+            if (not student.get('risk_badge') or student.get('risk_badge') == 'Low') and score == 0.0:
+                try:
+                    risk_engine.predict_risk(s_id)
+                    badge, score, last_calc = risk_engine.update_user_overall_risk(s_id)
+                except Exception as ex:
+                    print(f"Error computing live risk for student {s_id}: {ex}")
+
+            student['risk_badge'] = badge
+            student['risk_score'] = score
+            student['last_calculated'] = last_calc
+
         return jsonify(students), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -128,12 +145,12 @@ def recalculate_risk():
 def get_analytics():
     try:
         from config.database import db
-        # Return aggregations for analytics console
-        # Example: Risk distribution
+        # Return aggregations for analytics console from active student risk badges
         pipeline = [
-            {'$group': {'_id': '$risk_level', 'count': {'$sum': 1}}}
+            {'$match': {'role': 'student'}},
+            {'$group': {'_id': '$risk_badge', 'count': {'$sum': 1}}}
         ]
-        risk_distribution_raw = list(db.get_db()['predictions'].aggregate(pipeline))
+        risk_distribution_raw = list(db.get_db()['users'].aggregate(pipeline))
         risk_distribution = {item['_id']: item['count'] for item in risk_distribution_raw if item['_id']}
         
         return jsonify({

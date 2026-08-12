@@ -68,6 +68,60 @@ def get_course(course_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def process_course_files(request_files, data, course=None):
+    upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
+    os.makedirs(upload_folder, exist_ok=True)
+
+    pdf_mapping = {
+        'syllabus_pdf': ['syllabus_pdf', 'syllabus_file', 'syllabus'],
+        'reference_materials_pdf': ['reference_materials_pdf', 'reference_file', 'reference_pdf'],
+        'practice_exercises_pdf': ['practice_exercises_pdf', 'exercises_file', 'exercises_pdf']
+    }
+
+    for key, field_names in pdf_mapping.items():
+        uploaded = False
+        for field in field_names:
+            if field in request_files:
+                file = request_files[field]
+                if file and file.filename != '':
+                    filename = secure_filename(file.filename)
+                    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'pdf'
+                    new_filename = f"{key}_{uuid.uuid4().hex[:8]}.{ext}"
+                    file.save(os.path.join(upload_folder, new_filename))
+                    data[key] = f"/static/uploads/{new_filename}"
+                    uploaded = True
+                    break
+        if not uploaded and course:
+            if key in course:
+                data[key] = course[key]
+
+    if 'thumbnail' in request_files:
+        file = request_files['thumbnail']
+        if file and file.filename != '':
+            filename = secure_filename(file.filename)
+            ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
+            new_filename = f"{uuid.uuid4().hex}.{ext}"
+            file.save(os.path.join(upload_folder, new_filename))
+            data['thumbnail'] = f"/static/uploads/{new_filename}"
+
+    existing_map = {}
+    if course and 'studyMaterials' in course and isinstance(course['studyMaterials'], list):
+        existing_map = {m.get('id'): m.get('url') for m in course['studyMaterials'] if isinstance(m, dict)}
+
+    s_url = data.get('syllabus_pdf') or existing_map.get('syllabus') or '/static/uploads/sample_syllabus.pdf'
+    r_url = data.get('reference_materials_pdf') or existing_map.get('reference') or '/static/uploads/sample_reference.pdf'
+    e_url = data.get('practice_exercises_pdf') or existing_map.get('exercises') or '/static/uploads/sample_exercises.pdf'
+
+    data['syllabus_pdf'] = s_url
+    data['reference_materials_pdf'] = r_url
+    data['practice_exercises_pdf'] = e_url
+
+    data['studyMaterials'] = [
+        {'id': 'syllabus', 'title': 'Course Syllabus PDF', 'type': 'pdf', 'url': s_url},
+        {'id': 'reference', 'title': 'Reference Materials PDF', 'type': 'pdf', 'url': r_url},
+        {'id': 'exercises', 'title': 'Practice Exercises PDF', 'type': 'pdf', 'url': e_url}
+    ]
+
 @courses_bp.route('/api/courses', methods=['POST'])
 @admin_required
 def create_course():
@@ -82,17 +136,8 @@ def create_course():
                         data[json_field] = json.loads(data[json_field])
                     except Exception:
                         pass
-            
-            if 'thumbnail' in request.files:
-                file = request.files['thumbnail']
-                if file and file.filename != '':
-                    upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
-                    os.makedirs(upload_folder, exist_ok=True)
-                    filename = secure_filename(file.filename)
-                    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
-                    new_filename = f"{uuid.uuid4().hex}.{ext}"
-                    file.save(os.path.join(upload_folder, new_filename))
-                    data['thumbnail'] = f"/static/uploads/{new_filename}"
+
+        process_course_files(request.files, data)
 
         if 'code' not in data or not data['code']:
             import random
@@ -132,6 +177,12 @@ def create_course():
 @admin_required
 def update_course(course_id):
     try:
+        course_model = Course()
+        course = course_model.find_by_id(course_id)
+        
+        if not course:
+            return jsonify({'error': 'Course not found'}), 404
+
         if request.is_json:
             data = request.get_json()
         else:
@@ -142,23 +193,8 @@ def update_course(course_id):
                         data[json_field] = json.loads(data[json_field])
                     except Exception:
                         pass
-            
-            if 'thumbnail' in request.files:
-                file = request.files['thumbnail']
-                if file and file.filename != '':
-                    upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
-                    os.makedirs(upload_folder, exist_ok=True)
-                    filename = secure_filename(file.filename)
-                    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else 'jpg'
-                    new_filename = f"{uuid.uuid4().hex}.{ext}"
-                    file.save(os.path.join(upload_folder, new_filename))
-                    data['thumbnail'] = f"/static/uploads/{new_filename}"
 
-        course_model = Course()
-        course = course_model.find_by_id(course_id)
-        
-        if not course:
-            return jsonify({'error': 'Course not found'}), 404
+        process_course_files(request.files, data, course)
         
         if 'difficulty' in data and data['difficulty'] not in ['Beginner', 'Intermediate', 'Advanced']:
             return jsonify({'error': 'Invalid difficulty level. Must be Beginner, Intermediate, or Advanced'}), 400
@@ -175,6 +211,58 @@ def update_course(course_id):
         else:
             return jsonify({'error': 'Failed to update course'}), 500
         
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@courses_bp.route('/api/admin/courses/import', methods=['POST'])
+@admin_required
+def import_course():
+    try:
+        data = request.get_json(silent=True) or {}
+        code = data.get('code')
+        title = data.get('title')
+        modules = data.get('modules', [])
+        
+        if not code or not title:
+            return jsonify({'error': 'Course code and title are required'}), 400
+            
+        course_model = Course()
+        existing = course_model.collection.find_one({'code': code})
+        
+        if existing:
+            course_model.update_course(str(existing['_id']), data)
+            course_id = str(existing['_id'])
+            action = 'updated'
+        else:
+            course_id = course_model.create_course(data)
+            action = 'created'
+            
+        stats_notifier.notify()
+        return jsonify({
+            'message': f'Course {action} successfully with {len(modules)} modules.',
+            'course_id': course_id
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@courses_bp.route('/api/courses/resources/download/<filename>', methods=['GET'])
+def download_course_resource(filename):
+    try:
+        from flask import send_from_directory
+        safe_name = secure_filename(filename)
+        upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
+        file_path = os.path.join(upload_folder, safe_name)
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'Resource file not found'}), 404
+        
+        as_attachment = request.args.get('download', 'false').lower() == 'true'
+        return send_from_directory(
+            upload_folder,
+            safe_name,
+            mimetype='application/pdf',
+            as_attachment=as_attachment,
+            download_name=safe_name if as_attachment else None
+        )
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 

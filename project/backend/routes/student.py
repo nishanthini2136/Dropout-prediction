@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from bson.objectid import ObjectId
 from bson.errors import InvalidId
+from datetime import datetime
 
 # Import models
 from models.progress import ProgressModel
@@ -22,12 +23,16 @@ def get_dashboard():
 # ---------------------------------------------------------------------------
 # Helper: serialise a MongoDB document to a JSON-safe dict
 def _serialize(doc):
+    if not isinstance(doc, dict):
+        return doc
     result = {}
     for k, v in doc.items():
-        if type(v).__name__ == 'ObjectId':
+        if type(v).__name__ == 'ObjectId' or isinstance(v, ObjectId):
             result[k] = str(v)
+        elif isinstance(v, datetime):
+            result[k] = v.isoformat()
         elif isinstance(v, list):
-            result[k] = [_serialize(i) if isinstance(i, dict) else i for i in v]
+            result[k] = [_serialize(i) if isinstance(i, dict) else str(i) if (isinstance(i, ObjectId) or type(i).__name__ == 'ObjectId') else i for i in v]
         elif isinstance(v, dict):
             result[k] = _serialize(v)
         else:
@@ -49,12 +54,14 @@ def _to_object_id(id_str):
 def watch_module_video(module_id):
     """Mark the video for the given module as watched by the current student."""
     user_id = request.current_user_id
+    data = request.get_json(silent=True) or {}
+    course_id = data.get('course_id') or request.args.get('course_id')
     try:
-        ProgressModel().set_video_watched(user_id, module_id)
+        ProgressModel().set_video_watched(user_id, module_id, course_id=course_id)
         from models.engagement import EngagementModel
-        EngagementModel().log_event(user_id, None, module_id, 'watch', duration=300)
+        EngagementModel().log_event(user_id, course_id, module_id, 'watch', duration=300)
         from services.risk_engine import RiskEngine
-        RiskEngine().predict_risk(user_id)
+        RiskEngine().predict_risk(user_id, course_id=course_id)
     except Exception as e:
         return jsonify({'error': f'Could not record progress: {str(e)}'}), 500
     return jsonify({'message': 'Video marked as watched'}), 200
@@ -274,10 +281,7 @@ def handle_roadmap(week_num):
         if not roadmap:
             roadmap = roadmap_model.generate_personalized_roadmap(user_id, course_id, week_num)
         if roadmap:
-            roadmap['_id'] = str(roadmap['_id'])
-            if roadmap.get('course_id'):
-                roadmap['course_id'] = str(roadmap['course_id'])
-            return jsonify({'roadmap': roadmap}), 200
+            return jsonify({'roadmap': _serialize(roadmap)}), 200
         return jsonify({'roadmap': None}), 200
         
     elif request.method == 'POST':
@@ -333,27 +337,21 @@ def get_dashboard_stats():
         
         for e in enrollments:
             c_id = str(e['course_id'])
-            pred = PredictionModel().get_prediction(user_id, c_id)
-            if not pred or 'weekly_forecast' not in pred:
-                pred = RiskEngine().predict_risk(user_id, c_id)
+            pred = RiskEngine().predict_risk(user_id, c_id)
             if pred:
-                pred['_id'] = str(pred['_id'])
-                if pred.get('course_id'):
-                    pred['course_id'] = str(pred['course_id'])
-                predictions_map[c_id] = pred
+                predictions_map[c_id] = _serialize(pred)
 
         if not predictions_map:
             preds = PredictionModel().get_prediction(user_id)
             if isinstance(preds, list) and len(preds) > 0:
                 for p in preds:
-                    p['_id'] = str(p['_id'])
+                    p_ser = _serialize(p)
                     if p.get('course_id'):
-                        predictions_map[str(p['course_id'])] = p
+                        predictions_map[str(p['course_id'])] = p_ser
                     else:
-                        predictions_map['default'] = p
+                        predictions_map['default'] = p_ser
             elif isinstance(preds, dict):
-                preds['_id'] = str(preds['_id'])
-                predictions_map['default'] = preds
+                predictions_map['default'] = _serialize(preds)
 
         return jsonify({
             'predictions': predictions_map

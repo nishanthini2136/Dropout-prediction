@@ -45,5 +45,12 @@ def home():
 def health_check():
     return jsonify({'status': 'healthy'}), 200
 
+@app.route('/static/uploads/<path:filename>')
+def serve_uploads(filename):
+    import os
+    from flask import send_from_directory
+    upload_dir = os.path.join(app.root_path, 'static', 'uploads')
+    return send_from_directory(upload_dir, filename)
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

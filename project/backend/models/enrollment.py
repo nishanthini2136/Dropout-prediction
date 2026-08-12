@@ -20,7 +20,13 @@ class Enrollment:
         })
     
     def get_student_enrollments(self, student_id):
-        enrollments = list(self.collection.find({'student_id': ObjectId(student_id)}))
+        s_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
+        enrollments = list(self.collection.find({
+            '$or': [
+                {'student_id': s_match},
+                {'user_id': s_match}
+            ]
+        }))
         return enrollments
     
     def get_course_enrollments(self, course_id):
