@@ -3,6 +3,7 @@ import { Container, Row, Col, Card, ProgressBar, Button, Alert, Modal, Form } fr
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import Navbar from '../components/Navbar';
 
 const MyCourses = () => {
   const { token, logout } = useAuth();
@@ -76,15 +77,28 @@ const MyCourses = () => {
 
   if (loading) {
     return (
-      <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '100vh' }}>
-        <div>Loading...</div>
-      </Container>
+      <div>
+        <Navbar />
+        <Container className="d-flex justify-content-center align-items-center" style={{ minHeight: '80vh' }}>
+          <div>Loading...</div>
+        </Container>
+      </div>
     );
   }
 
   return (
-    <Container className="py-4">
-      <h2 className="mb-4">My Enrolled Courses</h2>
+    <div>
+      <Navbar />
+      <Container className="py-4">
+        <Button 
+          variant="outline-secondary" 
+          className="mb-3" 
+          onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/student/dashboard')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+        >
+          ← Back
+        </Button>
+        <h2 className="mb-4">My Enrolled Courses</h2>
       
       {error && <Alert variant="danger">{error}</Alert>}
 
@@ -188,6 +202,7 @@ const MyCourses = () => {
         </Modal.Footer>
       </Modal>
     </Container>
+  </div>
   );
 };
 

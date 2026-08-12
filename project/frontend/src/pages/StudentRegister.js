@@ -73,7 +73,7 @@ const StudentRegister = () => {
       </div>
       <div className="auth-form-side">
         <div className="auth-box">
-          <div className="back-link" onClick={() => navigate('/')}>← Back to role select</div>
+          <div className="back-link" onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/')} style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>← Back</div>
           <h2>Student registration</h2>
           <div className="sub">Create your account to start learning.</div>
           {error && <div className="error-message">{error}</div>}

@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Card, Form, Button, Alert } from 'react-bootstrap';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import Navbar from '../components/Navbar';
 
 const Profile = () => {
-  const { user, token, logout } = useAuth();
+  const navigate = useNavigate();
+  const { user, token } = useAuth();
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -64,15 +67,36 @@ const Profile = () => {
 
   if (!user) {
     return (
-      <Container className="py-4">
-        <Alert variant="warning">Please log in to view your profile.</Alert>
-      </Container>
+      <div>
+        <Navbar />
+        <Container className="py-4">
+          <Button 
+            variant="outline-secondary" 
+            className="mb-3" 
+            onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            ← Back
+          </Button>
+          <Alert variant="warning">Please log in to view your profile.</Alert>
+        </Container>
+      </div>
     );
   }
 
   return (
-    <Container className="py-4">
-      <h2 className="mb-4">My Profile</h2>
+    <div>
+      <Navbar />
+      <Container className="py-4">
+        <Button 
+          variant="outline-secondary" 
+          className="mb-3" 
+          onClick={() => window.history.length > 1 ? navigate(-1) : navigate(`/${user?.role || 'student'}/dashboard`)}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+        >
+          ← Back
+        </Button>
+        <h2 className="mb-4">My Profile</h2>
       
       {error && <Alert variant="danger">{error}</Alert>}
       {success && <Alert variant="success">{success}</Alert>}
@@ -152,6 +176,7 @@ const Profile = () => {
         </Card.Body>
       </Card>
     </Container>
+  </div>
   );
 };
 

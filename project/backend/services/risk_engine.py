@@ -30,10 +30,15 @@ class RiskEngine:
         if course_id:
             course_match = {'$in': [ObjectId(course_id), str(course_id)]} if ObjectId.is_valid(course_id) else str(course_id)
 
-        # 1. Login/engagement frequency
+        # Log for debugging specific student
+        if student_id == '6a575780a8432911083eaa69':
+            print(f"[RiskEngine] extract_features for student {student_id}, course {course_id}")
+            print(f"[RiskEngine] course_match: {course_match}")
+
+        # 1. Login/engagement frequency - FIXED: Remove course_id: None from $or to ensure course scoping
         eng_match = {'student_id': student_match}
         if course_match:
-            eng_match['$or'] = [{'course_id': course_match}, {'course_id': None}]
+            eng_match['course_id'] = course_match
             
         pipeline_login = [
             {'$match': eng_match},
@@ -45,13 +50,16 @@ class RiskEngine:
         login_days = list(db.get_db()['engagement_logs'].aggregate(pipeline_login))
         login_frequency = len(login_days)
 
-        # 2. Video clicks for this course
+        if student_id == '6a575780a8432911083eaa69':
+            print(f"[RiskEngine] login_frequency: {login_frequency}")
+
+        # 2. Video clicks for this course - FIXED: Remove course_id: None from $or
         video_query = {
             'student_id': student_match,
             'event_type': {'$in': ['play', 'watch', 'video']}
         }
         if course_match:
-            video_query['$or'] = [{'course_id': course_match}, {'course_id': None}]
+            video_query['course_id'] = course_match
             
         engagement_video_clicks = db.get_db()['engagement_logs'].count_documents(video_query)
         
@@ -71,7 +79,10 @@ class RiskEngine:
         progress_video_clicks = db.get_db()['progress'].count_documents(progress_query)
         video_clicks = max(engagement_video_clicks, progress_video_clicks)
 
-        # 3. Quiz attempts & scores for this course
+        if student_id == '6a575780a8432911083eaa69':
+            print(f"[RiskEngine] video_clicks: {video_clicks} (engagement: {engagement_video_clicks}, progress: {progress_video_clicks})")
+
+        # 3. Quiz attempts & scores for this course - Already correctly scoped
         quiz_query = {'student_id': student_match}
         if course_match:
             quiz_query['course_id'] = course_match
@@ -92,7 +103,12 @@ class RiskEngine:
 
         avg_quiz_score = sum(quiz_scores) / len(quiz_scores) if len(quiz_scores) > 0 else 0.0
 
-        # 4. Assignments completed for this course
+        if student_id == '6a575780a8432911083eaa69':
+            print(f"[RiskEngine] quiz_attempts: {len(quiz_attempts)}, progress_quizzes: {len(progress_quizzes)}")
+            print(f"[RiskEngine] quiz_scores: {quiz_scores}")
+            print(f"[RiskEngine] avg_quiz_score: {avg_quiz_score}")
+
+        # 4. Assignments completed for this course - Already correctly scoped
         sub_query = {'student_id': student_match, 'status': 'Graded'}
         if course_id:
             # Find assignments belonging to course_id
@@ -103,7 +119,11 @@ class RiskEngine:
         graded_assignments = list(db.get_db()['submissions'].find(sub_query))
         assessments_completed = len(quiz_scores) + len(graded_assignments)
 
-        # 5. Assignment completion rate
+        if student_id == '6a575780a8432911083eaa69':
+            print(f"[RiskEngine] graded_assignments: {len(graded_assignments)}")
+            print(f"[RiskEngine] assessments_completed: {assessments_completed}")
+
+        # 5. Assignment completion rate - Already correctly scoped
         all_sub_query = {'student_id': student_match}
         total_assignments = 0
         if course_id:
@@ -129,6 +149,10 @@ class RiskEngine:
 
         assignment_completion_rate = on_time / total_assignments if total_assignments > 0 else 0.0
 
+        if student_id == '6a575780a8432911083eaa69':
+            print(f"[RiskEngine] total_assignments: {total_assignments}, on_time: {on_time}")
+            print(f"[RiskEngine] assignment_completion_rate: {assignment_completion_rate}")
+
         features = {
             'avg_activity_day': float(login_frequency),
             'login_frequency': login_frequency,
@@ -147,7 +171,10 @@ class RiskEngine:
 
         # If no course_id provided, loop over all enrolled courses for this student
         if not course_id:
-            enrollments = list(db.get_db()['enrollments'].find({'user_id': user_match}))
+            # Try both 'student_id' and 'user_id' fields for compatibility
+            enrollments = list(db.get_db()['enrollments'].find({'student_id': user_match}))
+            if not enrollments:
+                enrollments = list(db.get_db()['enrollments'].find({'user_id': user_match}))
             results = []
             for e in enrollments:
                 c_id = str(e['course_id'])
@@ -189,16 +216,24 @@ class RiskEngine:
                 print(f"[RiskEngine] Exception during CatBoost prediction: {e}. Falling back to rule engine.")
 
         if not model_used:
-            # Rule-based Per-Course Risk Engine:
-            # High Risk (85%): No video clicks and no assessments completed in this course
+            # Rule-based Per-Course Risk Engine (balanced):
+            # High Risk (85%): No video clicks and no assessments completed
             if features['video_clicks'] < 2 and features['assessments_completed'] == 0:
                 risk_level = "High"
                 risk_probability = 0.85
-            # Medium Risk (45%): Low quiz score or no assessments completed yet
-            elif features['assessments_completed'] == 0 or features['avg_quiz_score'] < 60:
+            # Medium-High Risk (65%): Low video engagement (1-2 clicks) with minimal assessments
+            elif features['video_clicks'] < 3 and features['assessments_completed'] <= 1:
+                risk_level = "Medium"
+                risk_probability = 0.65
+            # Medium Risk (45%): Moderate engagement but few assessments
+            elif features['assessments_completed'] <= 2:
                 risk_level = "Medium"
                 risk_probability = 0.45
-            # Low Risk (15%): Assessments completed and good quiz score
+            # Low-Medium Risk (30%): Good engagement but could be better
+            elif features['video_clicks'] < 4 or features['assessments_completed'] <= 3:
+                risk_level = "Medium"
+                risk_probability = 0.30
+            # Low Risk (15%): High engagement, good quiz scores, multiple assessments completed
             else:
                 risk_level = "Low"
                 risk_probability = 0.15

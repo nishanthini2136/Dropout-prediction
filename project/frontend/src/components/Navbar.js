@@ -19,14 +19,66 @@ const Navbar = () => {
     }
   };
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      if (user?.role === 'admin') {
+        navigate('/admin/dashboard');
+      } else if (user?.role === 'student') {
+        navigate('/student/dashboard');
+      } else {
+        navigate('/');
+      }
+    }
+  };
+
   const handleLogout = () => {
     logout();
     navigate('/');
   };
 
   return (
-    <div className="dash-nav" style={{ background: '#0F172A', borderBottom: '1px solid #1E293B', padding: '12px 0' }}>
-      <div className="wrap" style={{ maxWidth: '1280px', margin: '0 auto', padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+    <div className="dash-nav" style={{ background: '#0F172A', borderBottom: '1px solid #1E293B', padding: '12px 0', position: 'relative', minHeight: '60px', display: 'flex', alignItems: 'center' }}>
+      {/* Extreme top-left Back Button (18px margin from left edge) */}
+      <button
+        onClick={handleBack}
+        className="nav-back-btn"
+        title="Go Back"
+        style={{
+          position: 'absolute',
+          left: '18px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          background: 'rgba(255, 255, 255, 0.08)',
+          border: '1px solid rgba(255, 255, 255, 0.2)',
+          color: '#ffffff',
+          padding: '6px 14px',
+          borderRadius: '6px',
+          fontSize: '13px',
+          fontWeight: '500',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          transition: 'all 0.2s ease',
+          zIndex: 10
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = 'rgba(212, 175, 55, 0.2)';
+          e.currentTarget.style.borderColor = '#D4AF37';
+          e.currentTarget.style.color = '#D4AF37';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+          e.currentTarget.style.color = '#ffffff';
+        }}
+      >
+        <span style={{ fontSize: '14px' }}>←</span> Back
+      </button>
+
+      <div className="wrap" style={{ maxWidth: '1280px', width: '100%', margin: '0 auto', padding: '0 24px 0 100px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         {/* Brandmark */}
         <div className="brandmark" onClick={handleBrandClick} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div className="seal" style={{ width: '34px', height: '34px', borderRadius: '50%', border: '1.5px solid #D4AF37', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '600', fontSize: '15px', color: '#D4AF37' }}>E</div>

@@ -469,6 +469,26 @@ const CourseCreator = () => {
       <Navbar />
 
       <div className="wrap">
+        <button 
+          onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/admin/dashboard')} 
+          style={{ 
+            marginTop: '20px',
+            marginBottom: '10px', 
+            background: '#ffffff', 
+            border: '1px solid #CBD5E1', 
+            borderRadius: '6px', 
+            padding: '8px 16px', 
+            cursor: 'pointer', 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: '6px', 
+            fontWeight: '500', 
+            color: '#334155',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          ← Back
+        </button>
         <div className="dash-header">
           <div className="eyebrow">Course Management</div>
           <h1>Create New Course</h1>

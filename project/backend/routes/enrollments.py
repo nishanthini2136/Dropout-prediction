@@ -36,6 +36,12 @@ def enroll_in_course():
         if existing_enrollment:
             return jsonify({'error': 'Already enrolled in this course'}), 400
         
+        # Check seat capacity
+        capacity = int(course.get('capacity', 30))
+        enrolled_count = enrollment_model.collection.count_documents({'course_id': ObjectId(data['course_id'])})
+        if enrolled_count >= capacity:
+            return jsonify({'error': 'No seats available for this course'}), 400
+        
         # Create enrollment
         enrollment_data = {
             'student_id': ObjectId(request.current_user_id),

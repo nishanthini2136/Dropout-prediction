@@ -5,8 +5,14 @@ import './CourseCard.css';
 
 
 const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) => {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
   const fallbackImage = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop';
+
+  const capacity = course?.capacity !== undefined ? course.capacity : 30;
+  const actualSeatsLeft = seatsLeft !== undefined 
+    ? seatsLeft 
+    : (course?.seats_left !== undefined ? course.seats_left : Math.max(0, capacity - (course?.enrolled_count || 0)));
+  const isFull = full !== undefined ? full : actualSeatsLeft <= 0;
 
   const handleCardClick = () => {
     navigate(`/course/${course._id}`);
@@ -30,8 +36,8 @@ const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) =
       <div className="desc">{course.description}</div>
       <div className="meta">
         <span>{course.instructor}</span>
-        <span className={`seats-tag ${seatsLeft <= 3 ? 'low' : ''}`}>
-          {full ? 'Full' : `${seatsLeft} seats left`}
+        <span className={`seats-tag ${actualSeatsLeft <= 3 ? 'low' : ''}`}>
+          {isFull ? 'Full' : `${actualSeatsLeft} seats left`}
         </span>
       </div>
       <div className="actions" onClick={(e) => e.stopPropagation()}>
@@ -41,12 +47,12 @@ const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) =
           </button>
         ) : (
           <button
-            className={`btn ${full ? 'btn-ghost' : 'btn-teal'} btn-sm`}
+            className={`btn ${isFull ? 'btn-ghost' : 'btn-teal'} btn-sm`}
             style={{ width: '100%' }}
-            disabled={full}
+            disabled={isFull}
             onClick={onEnroll}
           >
-            {full ? 'No seats available' : 'Enroll Now'}
+            {isFull ? 'No seats available' : 'Enroll Now'}
           </button>
         )}
       </div>

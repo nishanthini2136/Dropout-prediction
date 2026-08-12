@@ -55,9 +55,10 @@ const CourseCatalog = () => {
     try {
       await axios.post('/api/enrollments', { course_id: courseId }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       setToastMessage('Enrolled successfully');
+      fetchCourses();
       fetchEnrolledCourses();
     } catch (error) {
-      setToastMessage('Error enrolling course');
+      setToastMessage(error.response?.data?.error || 'Error enrolling course');
     }
   };
 
@@ -66,6 +67,7 @@ const CourseCatalog = () => {
       try {
         await axios.delete(`/api/enrollments/${enrollmentId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
         setToastMessage('Course dropped successfully');
+        fetchCourses();
         fetchEnrolledCourses();
       } catch (error) {
         setToastMessage('Error dropping course');
@@ -97,6 +99,25 @@ const CourseCatalog = () => {
       <Navbar />
 
       <div className="wrap" style={{ padding: '40px 20px' }}>
+        <button 
+          onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/')} 
+          style={{ 
+            marginBottom: '20px', 
+            background: '#ffffff', 
+            border: '1px solid #CBD5E1', 
+            borderRadius: '6px', 
+            padding: '8px 16px', 
+            cursor: 'pointer', 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: '6px', 
+            fontWeight: '500', 
+            color: '#334155',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          ← Back
+        </button>
         <div className="dash-header" style={{ textAlign: 'center', marginBottom: '40px' }}>
           <h1>Course Catalog</h1>
           <p>Discover our wide range of courses and start your learning journey today.</p>
@@ -134,6 +155,9 @@ const CourseCatalog = () => {
           {filteredCourses.length > 0 ? (
             filteredCourses.map(course => {
               const isEnrolled = !!getEnrollmentId(course._id);
+              const capacity = course.capacity !== undefined ? course.capacity : 30;
+              const seatsLeft = course.seats_left !== undefined ? course.seats_left : Math.max(0, capacity - (course.enrolled_count || 0));
+              const isFull = seatsLeft <= 0;
               return (
                 <CourseCard 
                   key={course._id} 
@@ -141,8 +165,8 @@ const CourseCatalog = () => {
                   isEnrolled={isEnrolled} 
                   onEnroll={() => handleEnroll(course._id)} 
                   onDrop={() => handleDrop(getEnrollmentId(course._id))} 
-                  seatsLeft={30} 
-                  full={false} 
+                  seatsLeft={seatsLeft} 
+                  full={isFull} 
                 />
               )
             })

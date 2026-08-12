@@ -12,20 +12,30 @@ courses_bp = Blueprint('courses', __name__)
 @courses_bp.route('/api/courses', methods=['GET'])
 def get_all_courses():
     try:
+        from models.enrollment import Enrollment
+        from bson import ObjectId
+        
         search_term = request.args.get('search')
         category = request.args.get('category')
         difficulty = request.args.get('difficulty')
         
         course_model = Course()
+        enrollment_model = Enrollment()
         
         if search_term or category or difficulty:
             courses = course_model.search_courses(search_term, category, difficulty)
         else:
             courses = course_model.get_all_courses(active_only=True)
         
-        # Convert ObjectId to string for JSON serialization
+        # Convert ObjectId to string for JSON serialization & calculate seats left dynamically
         for course in courses:
-            course['_id'] = str(course['_id'])
+            c_id = str(course['_id'])
+            course['_id'] = c_id
+            capacity = int(course.get('capacity', 30))
+            enrolled_count = enrollment_model.collection.count_documents({'course_id': ObjectId(c_id)})
+            course['capacity'] = capacity
+            course['enrolled_count'] = enrolled_count
+            course['seats_left'] = max(0, capacity - enrolled_count)
         
         return jsonify(courses), 200
         
@@ -35,13 +45,23 @@ def get_all_courses():
 @courses_bp.route('/api/courses/<course_id>', methods=['GET'])
 def get_course(course_id):
     try:
+        from models.enrollment import Enrollment
+        from bson import ObjectId
+        
         course_model = Course()
+        enrollment_model = Enrollment()
         course = course_model.find_by_id(course_id)
         
         if not course:
             return jsonify({'error': 'Course not found'}), 404
         
-        course['_id'] = str(course['_id'])
+        c_id = str(course['_id'])
+        course['_id'] = c_id
+        capacity = int(course.get('capacity', 30))
+        enrolled_count = enrollment_model.collection.count_documents({'course_id': ObjectId(c_id)})
+        course['capacity'] = capacity
+        course['enrolled_count'] = enrolled_count
+        course['seats_left'] = max(0, capacity - enrolled_count)
         
         return jsonify({'course': course}), 200
         

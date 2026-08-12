@@ -116,8 +116,18 @@ const CourseDetails = () => {
 
   const fetchCourseDetails = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/courses/${id}`);
-      setCourse(response.data.course);
+      const response = await axios.get(`/api/courses/${id}`);
+      const courseData = response.data.course || response.data;
+      setCourse(courseData);
+
+      const mods = courseData?.modules || [];
+      if (mods.length > 0 && !activeModule) {
+        setActiveModule(mods[0]);
+        const firstLessons = mods[0].lessons || mods[0].resources || [];
+        if (firstLessons.length > 0) {
+          setActiveLesson(firstLessons[0]);
+        }
+      }
 
       // Check if user is enrolled
       if (user?.role === 'student') {
@@ -171,6 +181,7 @@ const CourseDetails = () => {
   };
 
   const isModuleUnlocked = (moduleObj, index) => {
+    if (!isEnrolled) return true; // Allow non-enrolled students to preview all modules
     if (index === 0) return true;
     if (isModuleCompleted(moduleObj)) return true;
 
@@ -187,24 +198,21 @@ const CourseDetails = () => {
 
   const checkEnrollment = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/enrollments/my-courses', {
+      const response = await axios.get('/api/enrollments/my-courses', {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      const enrolled = response.data.find(
-        enrollment => (enrollment.course_id?._id === id || enrollment.course_id?.id === id)
+      const enrollList = Array.isArray(response.data.enrollments) ? response.data.enrollments : (Array.isArray(response.data) ? response.data : []);
+      const enrolled = enrollList.find(
+        item => {
+          const c = item.course_id || item.course;
+          const cId = typeof c === 'object' ? (c._id || c.id) : c;
+          return String(cId) === String(id);
+        }
       );
       if (enrolled) {
         setIsEnrolled(true);
-        setEnrollment(enrolled);
+        setEnrollment(enrolled.enrollment || enrolled);
         await fetchStudentProgress();
-        const courseObj = enrolled.course_id || course;
-        if (courseObj && courseObj.modules && courseObj.modules.length > 0) {
-          setActiveModule(courseObj.modules[0]);
-          const firstModuleLessons = courseObj.modules[0].lessons || courseObj.modules[0].resources || [];
-          if (firstModuleLessons.length > 0) {
-            setActiveLesson(firstModuleLessons[0]);
-          }
-        }
       }
     } catch (error) {
       console.error('Error checking enrollment:', error);
@@ -222,15 +230,15 @@ const CourseDetails = () => {
     setError('');
 
     try {
-      await axios.post('http://localhost:5000/api/enrollments', { course_id: id }, {
+      await axios.post('/api/enrollments', { course_id: id }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setIsEnrolled(true);
-      setToastMessage('Enrolled successfully');
+      setToastMessage('🎉 Enrolled successfully! You can now access full video lectures, complete quizzes, and track progress.');
       await checkEnrollment();
     } catch (error) {
       setError(error.response?.data?.error || 'Error enrolling in course');
-      setToastMessage('Error enrolling in course');
+      setToastMessage(error.response?.data?.error || 'Error enrolling in course');
     } finally {
       setEnrolling(false);
     }
@@ -591,6 +599,26 @@ const CourseDetails = () => {
       <Navbar />
 
       <div className="wrap">
+        <button 
+          onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/catalog')} 
+          style={{ 
+            marginTop: '20px',
+            marginBottom: '10px', 
+            background: '#ffffff', 
+            border: '1px solid #CBD5E1', 
+            borderRadius: '6px', 
+            padding: '8px 16px', 
+            cursor: 'pointer', 
+            display: 'inline-flex', 
+            alignItems: 'center', 
+            gap: '6px', 
+            fontWeight: '500', 
+            color: '#334155',
+            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+          }}
+        >
+          ← Back
+        </button>
         <div className="dash-header">
           <div className="eyebrow">Course Details</div>
           <h1>{course.title}</h1>
@@ -726,11 +754,11 @@ const CourseDetails = () => {
           </div>
         </div>
 
-        {/* Module-wise Lessons (Only for enrolled students) */}
-        {isEnrolled && (
+        {/* Module-wise Lessons & Syllabus Preview */}
+        {course && (
           <>
             <div className="section-head">
-              <h2>Course Modules</h2>
+              <h2>Course Curriculum & Modules</h2>
             </div>
             
             <div style={{ 
@@ -748,7 +776,7 @@ const CourseDetails = () => {
               }}>
                 <div style={{ padding: '24px', borderBottom: '1px solid #E5E7EB' }}>
                   <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#111827', margin: 0 }}>
-                    Modules
+                    Modules ({modules.length})
                   </h3>
                 </div>
                 <div>
@@ -760,7 +788,7 @@ const CourseDetails = () => {
                       <div
                         key={module.id || module._id || index}
                         onClick={() => {
-                          if (isUnlocked) {
+                          if (isUnlocked || !isEnrolled) {
                             setActiveModule(module);
                             const modLessons = module.lessons || module.resources || [];
                             if (modLessons.length > 0) setActiveLesson(modLessons[0]);
@@ -774,9 +802,9 @@ const CourseDetails = () => {
                         style={{
                           padding: '16px 24px',
                           borderBottom: index < modules.length - 1 ? '1px solid #E5E7EB' : 'none',
-                          cursor: isUnlocked ? 'pointer' : 'not-allowed',
-                          backgroundColor: activeModule?.id === module.id || activeModule?._id === module._id ? '#F8FAFC' : '#ffffff',
-                          opacity: isUnlocked ? 1 : 0.65,
+                          cursor: 'pointer',
+                          backgroundColor: (activeModule?.id === module.id || activeModule?._id === module._id || activeModule?.title === module.title) ? '#F8FAFC' : '#ffffff',
+                          opacity: (isUnlocked || !isEnrolled) ? 1 : 0.65,
                           transition: 'background-color 0.2s'
                         }}
                       >
@@ -784,7 +812,11 @@ const CourseDetails = () => {
                           <div style={{ fontWeight: '600', color: '#111827', fontSize: '15px' }}>
                             {module.title}
                           </div>
-                          {isCompleted ? (
+                          {!isEnrolled ? (
+                            <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#F3F4F6', color: '#4B5563' }}>
+                              Preview
+                            </span>
+                          ) : isCompleted ? (
                             <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#D1FAE5', color: '#047857' }}>
                               ✓ Done
                             </span>
@@ -808,7 +840,7 @@ const CourseDetails = () => {
 
               </div>
 
-              {/* Lesson Content */}
+              {/* Lesson Content / Preview */}
               <div style={{ 
                 background: '#ffffff', 
                 border: '1px solid #E5E7EB', 
@@ -826,7 +858,7 @@ const CourseDetails = () => {
 
                       return (
                         <div
-                          key={lesson.id}
+                          key={lesson.id || index}
                           style={{
                             padding: '20px',
                             marginBottom: index < (activeModule.lessons || activeModule.resources || []).length - 1 ? '16px' : '0',
@@ -878,6 +910,10 @@ const CourseDetails = () => {
                             <button
                               className="btn btn-gold btn-sm"
                               onClick={() => {
+                                if (!isEnrolled) {
+                                  setToastMessage('Please click "Enroll Now" to access video lectures and coursework!');
+                                  return;
+                                }
                                 setActiveLesson(lesson);
                                 setShowVideoPlayer(true);
                               }}
@@ -897,8 +933,48 @@ const CourseDetails = () => {
               </div>
             </div>
 
-            {/* Quiz Section — unlocked after video completion */}
-            <div id="quiz-section">
+            {/* Non-Enrolled Student Enrollment Call-to-Action Banner */}
+            {!isEnrolled && (
+              <div style={{
+                background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
+                border: '1.5px solid #D4AF37',
+                borderRadius: '16px',
+                padding: '28px 36px',
+                marginTop: '32px',
+                marginBottom: '40px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '20px',
+                color: '#ffffff',
+                boxShadow: '0 8px 24px rgba(15,23,42,0.2)'
+              }}>
+                <div style={{ flex: '1', minWidth: '280px' }}>
+                  <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: '#D4AF37', fontWeight: '700', marginBottom: '6px' }}>
+                    Ready to start learning?
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '22px', fontWeight: '700', color: '#ffffff' }}>
+                    Enroll in {course?.title || 'this course'}
+                  </h3>
+                  <p style={{ margin: '6px 0 0 0', fontSize: '14px', color: '#94A3B8', lineHeight: '1.5' }}>
+                    Gain full access to video lectures, downloadable resources, interactive quizzes, assignments, and progress tracking.
+                  </p>
+                </div>
+                <button
+                  className="btn btn-gold"
+                  onClick={handleEnroll}
+                  disabled={enrolling || !course?.is_active}
+                  style={{ padding: '14px 32px', fontSize: '16px', fontWeight: '600', borderRadius: '8px' }}
+                >
+                  {enrolling ? 'Enrolling...' : 'Enroll Now'}
+                </button>
+              </div>
+            )}
+
+            {/* Quiz Section — unlocked after video completion for enrolled students */}
+            {isEnrolled && (
+              <div id="quiz-section">
               {quizData && quizData.length > 0 && (
                 <>
                   <div className="section-head">
@@ -1145,6 +1221,7 @@ const CourseDetails = () => {
                 </div>
               )}
             </div>
+            )}
 
 
             {/* Study Materials */}

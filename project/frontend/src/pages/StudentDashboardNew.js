@@ -217,9 +217,14 @@ const StudentDashboard = () => {
             <>
               <div className="section-head"><h2>Recommended For You</h2></div>
               <div className="course-grid" style={{ marginBottom: '40px' }}>
-                {recommendations.map(course => (
-                  <CourseCard key={course._id} course={course} isEnrolled={false} onEnroll={() => handleEnroll(course._id)} onDrop={() => handleDrop(getEnrollmentId(course._id))} seatsLeft={30} full={false} />
-                ))}
+                {recommendations.map(course => {
+                  const capacity = course.capacity !== undefined ? course.capacity : 30;
+                  const seatsLeft = course.seats_left !== undefined ? course.seats_left : Math.max(0, capacity - (course.enrolled_count || 0));
+                  const isFull = seatsLeft <= 0;
+                  return (
+                    <CourseCard key={course._id} course={course} isEnrolled={false} onEnroll={() => handleEnroll(course._id)} onDrop={() => handleDrop(getEnrollmentId(course._id))} seatsLeft={seatsLeft} full={isFull} />
+                  );
+                })}
               </div>
             </>
           )}
