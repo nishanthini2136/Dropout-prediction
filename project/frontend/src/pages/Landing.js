@@ -37,7 +37,7 @@ const Landing = () => {
           {featuredCourses.length > 0 ? (
             featuredCourses.map(course => (
               <div key={course._id} className="course-card" style={{ background: '#fff', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', width: '300px' }}>
-                <div className="thumbnail" style={{ height: '160px', background: '#e5e7eb', backgroundImage: `url(${course.thumbnail})`, backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
+                <div className="thumbnail" style={{ height: '160px', background: '#e5e7eb', backgroundImage: `url(${course.thumbnail ? (course.thumbnail.startsWith('http') ? course.thumbnail : 'http://localhost:5000' + course.thumbnail) : 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop'})`, backgroundSize: 'cover', backgroundPosition: 'center' }}></div>
                 <div className="content" style={{ padding: '20px' }}>
                   <div className="tag" style={{ fontSize: '12px', color: '#3b82f6', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>{course.category}</div>
                   <h3 style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>{course.title}</h3>

@@ -99,25 +99,6 @@ const CourseCatalog = () => {
       <Navbar />
 
       <div className="wrap" style={{ padding: '40px 20px' }}>
-        <button 
-          onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/')} 
-          style={{ 
-            marginBottom: '20px', 
-            background: '#ffffff', 
-            border: '1px solid #CBD5E1', 
-            borderRadius: '6px', 
-            padding: '8px 16px', 
-            cursor: 'pointer', 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: '6px', 
-            fontWeight: '500', 
-            color: '#334155',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-          }}
-        >
-          ← Back
-        </button>
         <div className="dash-header" style={{ textAlign: 'center', marginBottom: '40px' }}>
           <h1>Course Catalog</h1>
           <p>Discover our wide range of courses and start your learning journey today.</p>

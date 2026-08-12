@@ -195,7 +195,12 @@ const StudentDashboard = () => {
 
                   <div className="badge-enrolled" style={{ marginTop: enrollment.risk_badge ? '28px' : '0' }}>Enrolled</div>
                   <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }}>
-                    <img src={enrollment.course_id.thumbnail || fallbackImage} alt={enrollment.course_id.title} style={{ height: '100%', width: '100%', objectFit: 'cover' }} onError={(e) => e.target.src = fallbackImage}/>
+                    <img
+                      src={enrollment.course_id.thumbnail ? (enrollment.course_id.thumbnail.startsWith('http') ? enrollment.course_id.thumbnail : `http://localhost:5000${enrollment.course_id.thumbnail}`) : fallbackImage}
+                      alt={enrollment.course_id.title}
+                      style={{ height: '100%', width: '100%', objectFit: 'cover' }}
+                      onError={(e) => e.target.src = fallbackImage}
+                    />
                   </div>
                   <div className="code">{enrollment.course_id.code} · {enrollment.course_id.category}</div>
                   <h3>{enrollment.course_id.title}</h3>
@@ -258,9 +263,20 @@ const StudentDashboard = () => {
 
           {/* Chart Widget */}
           <div className="widget" style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-            <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Risk Forecast</h3>
+            <h3 style={{ marginBottom: '5px', fontSize: '16px', color: '#0f172a', fontWeight: '700' }}>Risk Forecast</h3>
             {currentPrediction ? (
-              <Line data={chartData} options={chartOptions} />
+              <>
+                <Line data={chartData} options={chartOptions} />
+                {currentPrediction.forecast_type === 'trend_based' ? (
+                  <p style={{ fontSize: '11px', color: '#10b981', marginTop: '8px', fontWeight: '600' }}>
+                    📈 Trend-based projection (from real activity history)
+                  </p>
+                ) : (
+                  <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '8px', fontStyle: 'italic' }}>
+                    ℹ️ Baseline forecast — trend projection will refine as activity history accumulates.
+                  </p>
+                )}
+              </>
             ) : (
               <p style={{ color: '#6b7280', fontSize: '14px' }}>No forecast data available for selected course.</p>
             )}
@@ -268,15 +284,15 @@ const StudentDashboard = () => {
 
           {/* Roadmap Widget */}
           <div className="widget" style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-            <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Weekly Roadmap (Week 1)</h3>
+            <h3 style={{ marginBottom: '15px', fontSize: '16px', color: '#0f172a', fontWeight: '700' }}>Weekly Roadmap (Week 1)</h3>
             {roadmap && roadmap.tasks && roadmap.tasks.length > 0 ? (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                 {roadmap.tasks.map((task, idx) => (
                   <li key={idx} style={{ marginBottom: '10px', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
                     <input type="checkbox" checked={task.status === 'Completed'} readOnly />
                     <div>
-                      <div style={{ fontSize: '14px', fontWeight: '500' }}>{task.task_desc}</div>
-                      <div style={{ fontSize: '12px', color: '#6b7280' }}>{task.day}</div>
+                      <div style={{ fontSize: '14px', fontWeight: '500', color: '#1e293b' }}>{task.task_desc}</div>
+                      <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>{task.day}</div>
                     </div>
                   </li>
                 ))}

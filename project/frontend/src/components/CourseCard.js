@@ -18,12 +18,18 @@ const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) =
     navigate(`/course/${course._id}`);
   };
 
+  const getThumbnailUrl = (thumb) => {
+    if (!thumb) return fallbackImage;
+    if (thumb.startsWith('http://') || thumb.startsWith('https://')) return thumb;
+    return `http://localhost:5000${thumb}`;
+  };
+
   return (
     <div className="course-card" onClick={handleCardClick} style={{ cursor: 'pointer' }}>
       {isEnrolled && <div className="badge-enrolled">Enrolled</div>}
       <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }}>
         <img
-          src={course.thumbnail || fallbackImage}
+          src={getThumbnailUrl(course.thumbnail)}
           alt={course.title}
           style={{ height: '100%', width: '100%', objectFit: 'cover' }}
           onError={(e) => {

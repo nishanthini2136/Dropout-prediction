@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
 import './Dashboard.css';
 import Navbar from '../components/Navbar';
@@ -7,6 +7,7 @@ import Toast from '../components/Toast';
 
 const CourseCreator = () => {
   const navigate = useNavigate();
+  const { id } = useParams();
   const [toastMessage, setToastMessage] = useState('');
   const [activeSection, setActiveSection] = useState('basic');
   const [saving, setSaving] = useState(false);
@@ -21,8 +22,41 @@ const CourseCreator = () => {
     duration: '',
     language: 'English',
     thumbnail: null,
-    prerequisites: ''
+    prerequisites: '',
+    syllabus_pdf: null,
+    reference_materials_pdf: null,
+    practice_exercises_pdf: null
   });
+
+  useEffect(() => {
+    if (id) {
+      axios.get(`http://localhost:5000/api/courses/${id}`)
+        .then(res => {
+          const c = res.data.course;
+          if (c) {
+            setBasicInfo(prev => ({
+              ...prev,
+              title: c.title || '',
+              description: c.description || '',
+              category: c.category || '',
+              difficulty: c.difficulty || 'Beginner',
+              instructor: c.instructor || '',
+              duration: c.duration || '',
+              language: c.language || 'English',
+              prerequisites: c.prerequisites || '',
+              syllabus_pdf: c.syllabus_pdf || null,
+              reference_materials_pdf: c.reference_materials_pdf || null,
+              practice_exercises_pdf: c.practice_exercises_pdf || null
+            }));
+            if (c.modules) setModules(c.modules);
+            if (c.completionCriteria) setCompletionCriteria(c.completionCriteria);
+            if (c.learningConfig) setLearningConfig(c.learningConfig);
+            if (c.discussionTopics) setDiscussionTopics(c.discussionTopics);
+          }
+        })
+        .catch(err => console.error('Error fetching course for edit:', err));
+    }
+  }, [id]);
 
   // Course Modules
   const [modules, setModules] = useState([
@@ -339,15 +373,29 @@ const CourseCreator = () => {
       formData.append('language', basicInfo.language);
       formData.append('prerequisites', basicInfo.prerequisites);
       formData.append('is_active', false);
-      if (basicInfo.thumbnail) {
+
+      if (basicInfo.thumbnail instanceof File) {
         formData.append('thumbnail', basicInfo.thumbnail);
       }
+      if (basicInfo.syllabus_pdf instanceof File) {
+        formData.append('syllabus_pdf', basicInfo.syllabus_pdf);
+      }
+      if (basicInfo.reference_materials_pdf instanceof File) {
+        formData.append('reference_materials_pdf', basicInfo.reference_materials_pdf);
+      }
+      if (basicInfo.practice_exercises_pdf instanceof File) {
+        formData.append('practice_exercises_pdf', basicInfo.practice_exercises_pdf);
+      }
+
       formData.append('modules', JSON.stringify(modules));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
 
-      const response = await axios.post('http://localhost:5000/api/courses', formData, {
+      const url = id ? `http://localhost:5000/api/courses/${id}` : 'http://localhost:5000/api/courses';
+      const method = id ? 'put' : 'post';
+
+      const response = await axios[method](url, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -355,16 +403,12 @@ const CourseCreator = () => {
       });
 
       console.log('Course saved successfully:', response.data);
-      setToastMessage('Course saved as draft');
-      setTimeout(() => navigate('/admin/dashboard'), 2000);
+      setToastMessage(id ? 'Course updated successfully' : 'Course saved as draft');
+      setTimeout(() => navigate('/admin/dashboard'), 1500);
     } catch (error) {
       console.error('Error saving course:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
       if (error.response) {
-        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
-      } else if (error.request) {
-        setToastMessage('Error: No response from server. Check if backend is running.');
+        setToastMessage(`Error: ${error.response.data?.error || error.response.statusText}`);
       } else {
         setToastMessage(`Error: ${error.message}`);
       }
@@ -374,7 +418,6 @@ const CourseCreator = () => {
   };
 
   const handlePublish = async () => {
-    // Validate required fields before publishing
     const errors = {};
     if (!basicInfo.title || !basicInfo.title.trim()) {
       errors.title = 'Course title is required';
@@ -410,15 +453,29 @@ const CourseCreator = () => {
       formData.append('language', basicInfo.language);
       formData.append('prerequisites', basicInfo.prerequisites);
       formData.append('is_active', true);
-      if (basicInfo.thumbnail) {
+
+      if (basicInfo.thumbnail instanceof File) {
         formData.append('thumbnail', basicInfo.thumbnail);
       }
+      if (basicInfo.syllabus_pdf instanceof File) {
+        formData.append('syllabus_pdf', basicInfo.syllabus_pdf);
+      }
+      if (basicInfo.reference_materials_pdf instanceof File) {
+        formData.append('reference_materials_pdf', basicInfo.reference_materials_pdf);
+      }
+      if (basicInfo.practice_exercises_pdf instanceof File) {
+        formData.append('practice_exercises_pdf', basicInfo.practice_exercises_pdf);
+      }
+
       formData.append('modules', JSON.stringify(modules));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
 
-      const response = await axios.post('http://localhost:5000/api/courses', formData, {
+      const url = id ? `http://localhost:5000/api/courses/${id}` : 'http://localhost:5000/api/courses';
+      const method = id ? 'put' : 'post';
+
+      const response = await axios[method](url, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${localStorage.getItem('token')}`
@@ -426,16 +483,12 @@ const CourseCreator = () => {
       });
 
       console.log('Course published successfully:', response.data);
-      setToastMessage('Course published successfully');
-      setTimeout(() => navigate('/admin/dashboard'), 2000);
+      setToastMessage(id ? 'Course updated & published successfully' : 'Course published successfully');
+      setTimeout(() => navigate('/admin/dashboard'), 1500);
     } catch (error) {
       console.error('Error publishing course:', error);
-      console.error('Error response:', error.response);
-      console.error('Error message:', error.message);
       if (error.response) {
-        setToastMessage(`Error: ${error.response.data?.message || error.response.statusText}`);
-      } else if (error.request) {
-        setToastMessage('Error: No response from server. Check if backend is running.');
+        setToastMessage(`Error: ${error.response.data?.error || error.response.statusText}`);
       } else {
         setToastMessage(`Error: ${error.message}`);
       }
@@ -754,6 +807,86 @@ const CourseCreator = () => {
                               PNG, JPG, GIF up to 10MB
                             </div>
                           </label>
+                        </div>
+                      </div>
+
+                      {/* Course PDF Resource Files Upload Section */}
+                      <div style={{ marginTop: '24px', borderTop: '1px solid #E5E7EB', paddingTop: '20px' }}>
+                        <h4 style={{ fontSize: '15px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}>
+                          📚 Course Resource Documents (PDF Uploads)
+                        </h4>
+                        <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '16px' }}>
+                          Upload official PDF materials for students (Syllabus, Reference Materials, and Practice Exercises).
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                          {/* Syllabus PDF */}
+                          <div style={{ border: '1px solid #CBD5E1', borderRadius: '10px', padding: '16px', background: '#F8FAFC' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#1E293B', marginBottom: '6px' }}>
+                              📄 Course Syllabus PDF
+                            </label>
+                            <input
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              onChange={(e) => {
+                                if (e.target.files[0]) {
+                                  const f = e.target.files[0];
+                                  setBasicInfo(prev => ({ ...prev, syllabus_pdf: f }));
+                                }
+                              }}
+                              style={{ fontSize: '12px', width: '100%' }}
+                            />
+                            {basicInfo.syllabus_pdf && (
+                              <div style={{ fontSize: '12px', color: '#047857', marginTop: '8px', fontWeight: '500' }}>
+                                ✓ {basicInfo.syllabus_pdf instanceof File ? basicInfo.syllabus_pdf.name : basicInfo.syllabus_pdf.split('/').pop()}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Reference Materials PDF */}
+                          <div style={{ border: '1px solid #CBD5E1', borderRadius: '10px', padding: '16px', background: '#F8FAFC' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#1E293B', marginBottom: '6px' }}>
+                              📚 Reference Materials PDF
+                            </label>
+                            <input
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              onChange={(e) => {
+                                if (e.target.files[0]) {
+                                  const f = e.target.files[0];
+                                  setBasicInfo(prev => ({ ...prev, reference_materials_pdf: f }));
+                                }
+                              }}
+                              style={{ fontSize: '12px', width: '100%' }}
+                            />
+                            {basicInfo.reference_materials_pdf && (
+                              <div style={{ fontSize: '12px', color: '#047857', marginTop: '8px', fontWeight: '500' }}>
+                                ✓ {basicInfo.reference_materials_pdf instanceof File ? basicInfo.reference_materials_pdf.name : basicInfo.reference_materials_pdf.split('/').pop()}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Practice Exercises PDF */}
+                          <div style={{ border: '1px solid #CBD5E1', borderRadius: '10px', padding: '16px', background: '#F8FAFC' }}>
+                            <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#1E293B', marginBottom: '6px' }}>
+                              ✍️ Practice Exercises PDF
+                            </label>
+                            <input
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              onChange={(e) => {
+                                if (e.target.files[0]) {
+                                  const f = e.target.files[0];
+                                  setBasicInfo(prev => ({ ...prev, practice_exercises_pdf: f }));
+                                }
+                              }}
+                              style={{ fontSize: '12px', width: '100%' }}
+                            />
+                            {basicInfo.practice_exercises_pdf && (
+                              <div style={{ fontSize: '12px', color: '#047857', marginTop: '8px', fontWeight: '500' }}>
+                                ✓ {basicInfo.practice_exercises_pdf instanceof File ? basicInfo.practice_exercises_pdf.name : basicInfo.practice_exercises_pdf.split('/').pop()}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

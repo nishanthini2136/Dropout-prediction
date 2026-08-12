@@ -580,3 +580,9 @@ footer.dash-footer {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+.widget h3 {
+  color: #0F172A !important;
+  font-weight: 700 !important;
+  font-family: 'Poppins', sans-serif;
+}

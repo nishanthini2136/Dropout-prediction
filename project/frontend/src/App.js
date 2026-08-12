@@ -28,6 +28,7 @@ function App() {
             <Route path="/student/dashboard" element={<StudentDashboard />} />
             <Route path="/course/:id" element={<CourseDetails />} />
             <Route path="/admin/course/create" element={<CourseCreator />} />
+            <Route path="/admin/course/edit/:id" element={<CourseCreator />} />
             <Route path="/my-courses" element={<MyCourses />} />
             <Route path="/profile" element={<Profile />} />
           </Routes>

@@ -588,11 +588,29 @@ const CourseDetails = () => {
     }
   ];
 
-  const studyMaterials = course?.studyMaterials || [
-    { id: 1, title: 'Course Syllabus', type: 'pdf', url: '#' },
-    { id: 2, title: 'Reference Materials', type: 'pdf', url: '#' },
-    { id: 3, title: 'Practice Exercises', type: 'pdf', url: '#' }
-  ];
+  const getResourceUrl = (urlPath) => {
+    if (!urlPath || urlPath === '#') return null;
+    if (urlPath.startsWith('http://') || urlPath.startsWith('https://')) return urlPath;
+    return `http://localhost:5000${urlPath}`;
+  };
+
+  const rawMaterials = course?.studyMaterials && course.studyMaterials.length > 0
+    ? course.studyMaterials
+    : [
+        { id: 'syllabus', title: 'Course Syllabus PDF', type: 'pdf', url: course?.syllabus_pdf || '/static/uploads/sample_syllabus.pdf' },
+        { id: 'reference', title: 'Reference Materials PDF', type: 'pdf', url: course?.reference_materials_pdf || '/static/uploads/sample_reference.pdf' },
+        { id: 'exercises', title: 'Practice Exercises PDF', type: 'pdf', url: course?.practice_exercises_pdf || '/static/uploads/sample_exercises.pdf' }
+      ];
+
+  const studyMaterials = rawMaterials.map((item, idx) => {
+    const rawUrl = item.url || (item.id === 'syllabus' ? course?.syllabus_pdf : item.id === 'reference' ? course?.reference_materials_pdf : course?.practice_exercises_pdf);
+    return {
+      ...item,
+      id: item.id || idx,
+      url: rawUrl,
+      fullUrl: getResourceUrl(rawUrl)
+    };
+  });
 
   return (
     <div className="dashboard-screen">
@@ -647,7 +665,16 @@ const CourseDetails = () => {
           marginBottom: '32px',
           boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)'
         }}>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            {course.thumbnail && (
+              <div style={{ width: '240px', height: '140px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                <img
+                  src={course.thumbnail.startsWith('http') ? course.thumbnail : `http://localhost:5000${course.thumbnail}`}
+                  alt={course.title}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </div>
+            )}
             <div style={{ flex: '1', minWidth: '250px' }}>
               <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
                 <span style={{ 
@@ -1237,52 +1264,80 @@ const CourseDetails = () => {
               marginBottom: '32px'
             }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '16px' }}>
-                {studyMaterials.map(material => (
-                  <div
-                    key={material.id}
-                    style={{
-                      background: '#ffffff',
-                      border: '1px solid #E5E7EB',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '12px',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#0F172A';
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#E5E7EB';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }}
-                  >
-                    <div style={{ 
-                      width: '40px', 
-                      height: '40px', 
-                      borderRadius: '8px',
-                      backgroundColor: '#D4AF37',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#ffffff',
-                      fontSize: '18px'
-                    }}>
-                      📄
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: '500', color: '#111827', fontSize: '14px' }}>
-                        {material.title}
+                {studyMaterials.map(material => {
+                  const filename = material.url ? material.url.split('/').pop() : '';
+                  const downloadUrl = filename ? `http://localhost:5000/api/courses/resources/download/${filename}?download=true` : '#';
+
+                  return (
+                    <div
+                      key={material.id}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #E5E7EB',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '14px',
+                        transition: 'all 0.2s',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{ 
+                          width: '42px', 
+                          height: '42px', 
+                          borderRadius: '8px',
+                          backgroundColor: '#0F172A',
+                          color: '#D4AF37',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '20px',
+                          fontWeight: 'bold'
+                        }}>
+                          📄
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: '600', color: '#111827', fontSize: '14px' }}>
+                            {material.title}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#6B7280', marginTop: '2px' }}>
+                            Official Resource PDF
+                          </div>
+                        </div>
                       </div>
-                      <div style={{ fontSize: '12px', color: '#6B7280' }}>
-                        PDF
+
+                      <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
+                        {material.fullUrl ? (
+                          <a
+                            href={material.fullUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-gold btn-sm"
+                            style={{ flex: 1, textDecoration: 'none', textAlign: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '12px', padding: '8px 12px' }}
+                          >
+                            👁️ View PDF
+                          </a>
+                        ) : (
+                          <button disabled className="btn btn-ghost btn-sm" style={{ flex: 1, fontSize: '12px' }}>
+                            Not Available
+                          </button>
+                        )}
+                        {filename && (
+                          <a
+                            href={downloadUrl}
+                            download={filename}
+                            className="btn btn-ghost btn-sm"
+                            style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '12px', padding: '8px 12px', border: '1px solid #CBD5E1', color: '#334155' }}
+                          >
+                            ⬇️ Download
+                          </a>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </>
