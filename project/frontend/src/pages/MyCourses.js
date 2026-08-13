@@ -90,14 +90,6 @@ const MyCourses = () => {
     <div>
       <Navbar />
       <Container className="py-4">
-        <Button 
-          variant="outline-secondary" 
-          className="mb-3" 
-          onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/student/dashboard')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-        >
-          ← Back
-        </Button>
         <h2 className="mb-4">My Enrolled Courses</h2>
       
       {error && <Alert variant="danger">{error}</Alert>}

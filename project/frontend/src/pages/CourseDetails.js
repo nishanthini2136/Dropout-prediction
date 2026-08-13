@@ -619,27 +619,7 @@ const CourseDetails = () => {
       <Navbar />
 
       <div className="wrap">
-        <button 
-          onClick={() => window.history.length > 1 ? navigate(-1) : navigate('/catalog')} 
-          style={{ 
-            marginTop: '20px',
-            marginBottom: '10px', 
-            background: '#ffffff', 
-            border: '1px solid #CBD5E1', 
-            borderRadius: '6px', 
-            padding: '8px 16px', 
-            cursor: 'pointer', 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: '6px', 
-            fontWeight: '500', 
-            color: '#334155',
-            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-          }}
-        >
-          ← Back
-        </button>
-        <div className="dash-header">
+        <div className="dash-header" style={{ marginTop: '20px' }}>
           <div className="eyebrow">Course Details</div>
           <h1>{course.title}</h1>
           <p>{course.description}</p>
