@@ -6,51 +6,16 @@ from bson import ObjectId
 sys.path.append(os.path.abspath("d:/nishanthini/Dropout prediction/project/backend"))
 from config.database import db
 
+from utils.pdf_generator import generate_course_pdf
+
 upload_dir = os.path.join(os.path.dirname(__file__), "static", "uploads")
 os.makedirs(upload_dir, exist_ok=True)
 
-pdf_template = '''%PDF-1.4
-1 0 obj
-<< /Type /Catalog /Pages 2 0 R >>
-endobj
-2 0 obj
-<< /Type /Pages /Kids [3 0 R] /Count 1 >>
-endobj
-3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
-endobj
-4 0 obj
-<< /Length 85 >>
-stream
-BT
-/F1 18 Tf
-50 700 Td
-({TITLE}) Tj
-ET
-endstream
-endobj
-5 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
-endobj
-xref
-0 6
-0000000000 65535 f 
-0000000009 00000 n 
-0000000058 00000 n 
-0000000115 00000 n 
-0000000246 00000 n 
-0000000381 00000 n 
-trailer
-<< /Size 6 /Root 1 0 R >>
-startxref
-453
-%%EOF'''
-
-def generate_pdf(filename, title):
+def generate_pdf(filename, title, code, doc_type, modules_info=None):
     filepath = os.path.join(upload_dir, filename)
-    with open(filepath, 'wb') as f:
-        f.write(pdf_template.replace('{TITLE}', title).encode('utf-8'))
+    generate_course_pdf(filepath, title, code, doc_type, modules_info)
     return f"/static/uploads/{filename}"
+
 
 rich_courses = [
     {
@@ -435,20 +400,26 @@ rich_courses = [
 def seed_courses():
     print("=== SEEDING DYNAMIC MULTI-MODULE COURSES (> 5 MODULES EACH) ===")
     courses_col = db.get_db()['courses']
-    
+
+    # 0. Generate default fallback sample PDFs
+    generate_pdf("sample_syllabus.pdf", "General Course Syllabus", "GEN-101", "syllabus")
+    generate_pdf("sample_reference.pdf", "General Reference Materials", "GEN-101", "reference")
+    generate_pdf("sample_exercises.pdf", "General Practice Exercises", "GEN-101", "exercises")
+
     for cdata in rich_courses:
         code = cdata['code']
         title = cdata['title']
-        
+        modules = cdata.get('modules', [])
+
         # 1. Generate PDFs dynamically
         syllabus_file = f"{code}_Syllabus.pdf"
         reference_file = f"{code}_Reference_Materials.pdf"
         exercises_file = f"{code}_Practice_Exercises.pdf"
-        
-        syllabus_url = generate_pdf(syllabus_file, f"{title} - Official Course Syllabus")
-        reference_url = generate_pdf(reference_file, f"{title} - Reference Materials & Guides")
-        exercises_url = generate_pdf(exercises_file, f"{title} - Practice Exercises & Solutions")
-        
+
+        syllabus_url = generate_pdf(syllabus_file, title, code, "syllabus", modules)
+        reference_url = generate_pdf(reference_file, title, code, "reference", modules)
+        exercises_url = generate_pdf(exercises_file, title, code, "exercises", modules)
+
         cdata['syllabus_pdf'] = syllabus_url
         cdata['reference_materials_pdf'] = reference_url
         cdata['practice_exercises_pdf'] = exercises_url
@@ -457,7 +428,7 @@ def seed_courses():
             {'id': 'reference', 'title': 'Reference Materials PDF', 'type': 'pdf', 'url': reference_url},
             {'id': 'exercises', 'title': 'Practice Exercises PDF', 'type': 'pdf', 'url': exercises_url}
         ]
-        
+
         # 2. Update or insert course document
         existing = courses_col.find_one({'code': code})
         if existing:
@@ -469,6 +440,7 @@ def seed_courses():
             print(f"Created course '{title}' ({code}) with ID {res.inserted_id} and {len(cdata['modules'])} modules.")
 
     print("\nSuccessfully seeded all multi-module courses with PDF resources!")
+
 
 if __name__ == '__main__':
     seed_courses()

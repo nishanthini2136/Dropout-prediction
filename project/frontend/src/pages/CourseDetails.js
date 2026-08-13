@@ -24,8 +24,10 @@ const CourseDetails = () => {
     return (enrollment?.completed_lessons || []).includes(key);
   };
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const [pdfModal, setPdfModal] = useState({ open: false, url: '', title: '' });
   const [toastMessage, setToastMessage] = useState('');
   const [player, setPlayer] = useState(null);
+
   const [videoEnded, setVideoEnded] = useState(false);
   const [quizData, setQuizData] = useState(null);
   const [quizError, setQuizError] = useState('');
@@ -1310,15 +1312,13 @@ const CourseDetails = () => {
 
                       <div style={{ display: 'flex', gap: '8px', marginTop: 'auto' }}>
                         {material.fullUrl ? (
-                          <a
-                            href={material.fullUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={() => setPdfModal({ open: true, url: material.fullUrl, title: material.title })}
                             className="btn btn-gold btn-sm"
                             style={{ flex: 1, textDecoration: 'none', textAlign: 'center', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '4px', fontSize: '12px', padding: '8px 12px' }}
                           >
                             👁️ View PDF
-                          </a>
+                          </button>
                         ) : (
                           <button disabled className="btn btn-ghost btn-sm" style={{ flex: 1, fontSize: '12px' }}>
                             Not Available
@@ -1438,30 +1438,130 @@ const CourseDetails = () => {
                     )}
                   </div>
                 ) : (
-                  <div style={{
-                    textAlign: 'center',
-                    padding: '40px',
-                    backgroundColor: '#F8FAFC',
-                    borderRadius: '8px'
-                  }}>
-                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>📄</div>
-                    <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', marginBottom: '8px' }}>
-                      {activeLesson.title}
-                    </h4>
-                    <p style={{ color: '#6B7280', marginBottom: '16px' }}>
-                      PDF Document
-                    </p>
-                    <a
-                      href={activeLesson.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-gold"
-                      style={{ display: 'inline-block', textDecoration: 'none' }}
-                    >
-                      Open PDF
-                    </a>
+                  <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid #E2E8F0' }}>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px 16px',
+                      backgroundColor: '#F8FAFC',
+                      borderBottom: '1px solid #E2E8F0'
+                    }}>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#334155' }}>
+                        📄 {activeLesson.title} — PDF Document
+                      </span>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <a
+                          href={getResourceUrl(activeLesson.url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-gold btn-sm"
+                          style={{ fontSize: '12px', padding: '6px 12px', textDecoration: 'none' }}
+                        >
+                          ↗️ Open in New Tab
+                        </a>
+                        <a
+                          href={getResourceUrl(activeLesson.url)}
+                          download
+                          className="btn btn-ghost btn-sm"
+                          style={{ fontSize: '12px', padding: '6px 12px', textDecoration: 'none', border: '1px solid #CBD5E1', color: '#334155' }}
+                        >
+                          ⬇️ Download
+                        </a>
+                      </div>
+                    </div>
+                    <iframe
+                      src={getResourceUrl(activeLesson.url)}
+                      title={activeLesson.title}
+                      style={{
+                        width: '100%',
+                        height: '600px',
+                        border: 'none'
+                      }}
+                    />
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Dedicated Interactive PDF Preview Modal */}
+        {pdfModal.open && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100
+          }}>
+            <div style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '16px',
+              maxWidth: '1000px',
+              width: '92%',
+              height: '88vh',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+            }}>
+              <div style={{
+                padding: '16px 24px',
+                borderBottom: '1px solid #E5E7EB',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                backgroundColor: '#F8FAFC'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '20px' }}>📄</span>
+                  <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                    {pdfModal.title}
+                  </h3>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <a
+                    href={pdfModal.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-gold btn-sm"
+                    style={{ textDecoration: 'none', fontSize: '13px', padding: '6px 14px' }}
+                  >
+                    ↗️ Open in New Tab
+                  </a>
+                  <a
+                    href={pdfModal.url}
+                    download
+                    className="btn btn-ghost btn-sm"
+                    style={{ textDecoration: 'none', fontSize: '13px', padding: '6px 14px', border: '1px solid #CBD5E1', color: '#334155' }}
+                  >
+                    ⬇️ Download
+                  </a>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setPdfModal({ open: false, url: '', title: '' })}
+                    style={{ padding: '6px 12px', fontSize: '16px', fontWeight: 'bold' }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <div style={{ flex: 1, backgroundColor: '#525659' }}>
+                <iframe
+                  src={pdfModal.url}
+                  title={pdfModal.title}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    border: 'none'
+                  }}
+                />
               </div>
             </div>
           </div>
