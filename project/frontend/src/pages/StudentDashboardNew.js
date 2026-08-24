@@ -23,7 +23,7 @@ const StudentDashboard = () => {
   
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState('');
-  const fallbackImage = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop';
+  const fallbackImage = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="100%" height="100%" fill="#1e293b"/><text x="50%" y="50%" fill="#94a3b8" font-family="sans-serif" font-size="20" text-anchor="middle" dy=".3em">Course Learning Material</text></svg>')}`;
 
   useEffect(() => {
     fetchCourses();
@@ -173,28 +173,31 @@ const StudentDashboard = () => {
             ) : (
               enrolledCourses.map(enrollment => (
                 <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer', position: 'relative' }}>
-                  
-                  {/* Per-Course Risk Badge */}
-                  {enrollment.risk_badge && (
-                    <span style={{ 
-                      position: 'absolute', 
-                      top: '12px', 
-                      right: '12px', 
-                      zIndex: 2,
-                      background: enrollment.risk_badge === 'High' ? '#fee2e2' : enrollment.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
-                      color: enrollment.risk_badge === 'High' ? '#ef4444' : enrollment.risk_badge === 'Medium' ? '#f59e0b' : '#10b981',
-                      padding: '4px 10px', 
-                      borderRadius: '12px', 
-                      fontWeight: 'bold', 
-                      fontSize: '11px',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}>
-                      Risk: {enrollment.risk_badge} ({enrollment.risk_score?.toFixed(1)}%)
-                    </span>
-                  )}
+                  <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px', position: 'relative' }}>
+                    
+                    {/* Enrolled Badge */}
+                    <div className="badge-enrolled" style={{ top: '10px', left: '10px', right: 'auto' }}>Enrolled</div>
 
-                  <div className="badge-enrolled" style={{ marginTop: enrollment.risk_badge ? '28px' : '0' }}>Enrolled</div>
-                  <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }}>
+                    {/* Per-Course Risk Badge */}
+                    {enrollment.risk_badge && (
+                      <span style={{ 
+                        position: 'absolute', 
+                        top: '10px', 
+                        right: '10px', 
+                        zIndex: 10,
+                        background: enrollment.risk_badge === 'High' ? '#fee2e2' : enrollment.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
+                        color: enrollment.risk_badge === 'High' ? '#ef4444' : enrollment.risk_badge === 'Medium' ? '#b45309' : '#047857',
+                        padding: '4px 10px', 
+                        borderRadius: '6px', 
+                        fontWeight: 'bold', 
+                        fontSize: '11px',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                        border: '1px solid rgba(255, 255, 255, 0.4)'
+                      }}>
+                        Risk: {enrollment.risk_badge} ({enrollment.risk_score?.toFixed(1)}%)
+                      </span>
+                    )}
+
                     <img
                       src={enrollment.course_id.thumbnail ? (enrollment.course_id.thumbnail.startsWith('http') ? enrollment.course_id.thumbnail : `http://localhost:5000${enrollment.course_id.thumbnail}`) : fallbackImage}
                       alt={enrollment.course_id.title}

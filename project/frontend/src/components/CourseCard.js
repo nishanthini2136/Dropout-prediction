@@ -6,7 +6,7 @@ import './CourseCard.css';
 
 const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) => {
   const navigate = useNavigate();
-  const fallbackImage = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?q=80&w=600&auto=format&fit=crop';
+  const fallbackImage = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="100%" height="100%" fill="#1e293b"/><text x="50%" y="50%" fill="#94a3b8" font-family="sans-serif" font-size="20" text-anchor="middle" dy=".3em">Course Learning Material</text></svg>')}`;
 
   const capacity = course?.capacity !== undefined ? course.capacity : 30;
   const actualSeatsLeft = seatsLeft !== undefined 
@@ -26,8 +26,8 @@ const CourseCard = ({ course, isEnrolled, onEnroll, onDrop, seatsLeft, full }) =
 
   return (
     <div className="course-card" onClick={handleCardClick} style={{ cursor: 'pointer' }}>
-      {isEnrolled && <div className="badge-enrolled">Enrolled</div>}
-      <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px' }}>
+      <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px', position: 'relative' }}>
+        {isEnrolled && <div className="badge-enrolled">Enrolled</div>}
         <img
           src={getThumbnailUrl(course.thumbnail)}
           alt={course.title}
