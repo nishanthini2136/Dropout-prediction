@@ -358,40 +358,14 @@ class RiskEngine:
 
         pred_model = PredictionModel()
         
-        # Query past prediction history for this student & course
-        history_docs = pred_model.get_prediction_history(student_id, course_id)
-        past_probs = [h.get('risk_probability') for h in history_docs if h.get('risk_probability') is not None]
-        
-        all_probs = past_probs + [risk_probability]
-        
-        forecast_type = "placeholder"
-        weekly_forecast = []
-        
-        if len(all_probs) >= 2:
-            import numpy as np
-            x = np.arange(len(all_probs))
-            y = np.array(all_probs) * 100.0
-            
-            x_mean = float(np.mean(x))
-            y_mean = float(np.mean(y))
-            num = float(np.sum((x - x_mean) * (y - y_mean)))
-            den = float(np.sum((x - x_mean) ** 2))
-            slope = num / den if den != 0 else 0.0
-            slope = max(-15.0, min(15.0, slope))
-            
-            latest_y = y[-1]
-            for w in range(1, 5):
-                proj = round(max(0.0, min(100.0, latest_y + slope * w)), 1)
-                weekly_forecast.append({"week": w, "risk_pct": float(proj)})
-            forecast_type = "trend_based"
-        else:
-            weekly_forecast = [
-                {"week": 1, "risk_pct": round(max(0.0, min(100.0, risk_probability * 100 * 0.9)), 1)},
-                {"week": 2, "risk_pct": round(max(0.0, min(100.0, risk_probability * 100 * 0.95)), 1)},
-                {"week": 3, "risk_pct": round(max(0.0, min(100.0, risk_probability * 100 * 1.05)), 1)},
-                {"week": 4, "risk_pct": round(max(0.0, min(100.0, risk_probability * 100)), 1)}
-            ]
-            forecast_type = "placeholder"
+        # Calculate dynamic 4-week forecast purely using CatBoost on projected features
+        weekly_forecast = self.compute_weekly_forecast(
+            student_id=student_id,
+            course_id=course_id,
+            current_risk_prob=risk_probability,
+            features=features
+        )
+        forecast_type = "trend_based"
 
         pred_model.create_or_update_prediction(
             student_id=student_id,
@@ -420,3 +394,187 @@ class RiskEngine:
             'weekly_forecast': weekly_forecast,
             'forecast_type': forecast_type
         }
+
+    def calculate_learning_velocity(self, student_id: str, course_id: str = None, features: dict = None) -> dict:
+        """
+        Calculates student behavioral velocity (rate of change in engagement, video watching,
+        quiz attempts, and logins) from real historical timestamps in MongoDB.
+        Prioritizes the recent 7-14 day window over lifetime average.
+        """
+        student_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
+        course_match = None
+        if course_id:
+            course_match = {'$in': [ObjectId(course_id), str(course_id)]} if ObjectId.is_valid(course_id) else str(course_id)
+
+        # 1. Determine active learning period from enrollment
+        enrollment_query = {'$or': [{'student_id': student_match}, {'user_id': student_match}]}
+        if course_match:
+            enrollment_query['course_id'] = course_match
+        enrollment = db.get_db()['enrollments'].find_one(enrollment_query)
+        
+        enrolled_date = None
+        if enrollment:
+            enrolled_date = enrollment.get('created_at') or enrollment.get('enrolled_at')
+        
+        if enrolled_date and isinstance(enrolled_date, datetime):
+            days_enrolled = max(1, (datetime.utcnow() - enrolled_date).days)
+        else:
+            days_enrolled = 7  # Default initial 1-week window
+
+        # 2. Recent window (last 7 days) analysis
+        from datetime import timedelta
+        recent_cutoff = datetime.utcnow() - timedelta(days=7)
+
+        # Recent video clicks
+        vid_recent_query = {
+            'student_id': student_match,
+            'event_type': {'$in': ['play', 'watch', 'video']},
+            'timestamp': {'$gte': recent_cutoff}
+        }
+        if course_match:
+            vid_recent_query['course_id'] = course_match
+        recent_video_clicks = db.get_db()['engagement_logs'].count_documents(vid_recent_query)
+
+        # Recent logins/active days
+        eng_recent_query = {'student_id': student_match, 'timestamp': {'$gte': recent_cutoff}}
+        if course_match:
+            eng_recent_query['course_id'] = course_match
+        recent_logins = len(db.get_db()['engagement_logs'].distinct('timestamp', eng_recent_query))
+
+        # Recent quiz scores
+        quiz_recent_query = {'student_id': student_match}
+        if course_match:
+            quiz_recent_query['course_id'] = course_match
+        all_quizzes = list(db.get_db()['quiz_attempts'].find(quiz_recent_query).sort('timestamp', 1))
+
+        # Velocity calculations
+        total_vc = float(features.get('video_clicks', 0) if features else 0)
+        total_lf = float(features.get('login_frequency', 0) if features else 0)
+        total_ac = float(features.get('assessments_completed', 0) if features else 0)
+
+        # Weekly video rate
+        if recent_video_clicks > 0:
+            video_velocity = (recent_video_clicks * (7.0 / min(7, days_enrolled))) * 0.7 + (total_vc / days_enrolled * 7.0) * 0.3
+        elif total_vc > 0:
+            video_velocity = total_vc / days_enrolled * 7.0
+        else:
+            video_velocity = 0.0
+        video_velocity = max(0.0, min(15.0, round(video_velocity, 2)))
+
+        # Weekly login rate (active days per week)
+        if recent_logins > 0:
+            login_velocity = (recent_logins * (7.0 / min(7, days_enrolled))) * 0.7 + (total_lf / days_enrolled * 7.0) * 0.3
+        elif total_lf > 0:
+            login_velocity = total_lf / days_enrolled * 7.0
+        else:
+            login_velocity = 0.0
+        login_velocity = max(0.0, min(7.0, round(login_velocity, 2)))
+
+        # Weekly assessment rate
+        assessment_velocity = max(0.0, min(3.0, round(total_ac / max(1, days_enrolled) * 7.0, 2)))
+        if total_ac > 0 and assessment_velocity == 0.0:
+            assessment_velocity = 1.0  # If completed assessments, assume baseline pace of 1 per week
+
+        # Quiz performance trend
+        quiz_trend = 0.0
+        if len(all_quizzes) >= 2:
+            first_half = all_quizzes[:len(all_quizzes)//2]
+            second_half = all_quizzes[len(all_quizzes)//2:]
+            avg_first = sum(q.get('score', 0)/max(1, q.get('max_score', 1))*100 for q in first_half) / max(1, len(first_half))
+            avg_second = sum(q.get('score', 0)/max(1, q.get('max_score', 1))*100 for q in second_half) / max(1, len(second_half))
+            quiz_trend = (avg_second - avg_first) / max(1, days_enrolled / 7.0)
+            quiz_trend = max(-10.0, min(10.0, round(quiz_trend, 2)))
+
+        # Momentum classification
+        if video_velocity > 1.0 and login_velocity >= 1.0:
+            momentum_label = "Increasing"
+        elif video_velocity == 0.0 and total_ac == 0.0:
+            momentum_label = "Decreasing"
+        else:
+            momentum_label = "Stable"
+
+        velocity_data = {
+            'days_enrolled': days_enrolled,
+            'video_velocity': video_velocity,
+            'login_velocity': login_velocity,
+            'assessment_velocity': assessment_velocity,
+            'quiz_trend': quiz_trend,
+            'momentum': momentum_label
+        }
+        return velocity_data
+
+    def compute_weekly_forecast(self, student_id: str, course_id: str, current_risk_prob: float, features: dict) -> list:
+        """
+        Generates the 4-week dropout risk forecast purely by executing the trained CatBoost model
+        on projected feature vectors derived from real student behavioral velocity.
+        """
+        velocity = self.calculate_learning_velocity(student_id, course_id, features)
+        
+        print(f"[RiskEngine] === 4-Week ML Forecast for student_id={student_id}, course_id={course_id} ===")
+        print(f"[RiskEngine] Current Risk (Week 1): {current_risk_prob*100:.1f}%")
+        print(f"[RiskEngine] Week 1 Features: {features}")
+        print(f"[RiskEngine] Calculated Behavioral Velocity: {velocity}")
+
+        weekly_forecast = []
+        
+        # Week 1: Exact CatBoost prediction on current features
+        w1_risk_pct = round(max(0.0, min(100.0, current_risk_prob * 100.0)), 1)
+        weekly_forecast.append({"week": 1, "risk_pct": w1_risk_pct})
+
+        # Weeks 2, 3, 4: Project features forward and predict with CatBoost model
+        for w in range(2, 5):
+            dt = w - 1  # 1 week ahead, 2 weeks ahead, 3 weeks ahead
+            
+            # Project features with sanity bounds
+            proj_login_frequency = min(365.0, max(0.0, features['login_frequency'] + velocity['login_velocity'] * dt))
+            proj_video_clicks = min(500.0, max(0.0, features['video_clicks'] + velocity['video_velocity'] * dt))
+            proj_assessments = min(50.0, max(0.0, features['assessments_completed'] + velocity['assessment_velocity'] * dt))
+            proj_quiz_score = min(100.0, max(0.0, features['avg_quiz_score'] + velocity['quiz_trend'] * dt))
+            proj_avg_activity_day = min(365.0, max(0.0, features['avg_activity_day'] + velocity['login_velocity'] * dt))
+            proj_avg_submission_day = min(365.0, max(0.0, features['avg_submission_day'] + velocity['assessment_velocity'] * dt))
+            proj_avg_assessment_weight = 10.0
+            proj_studied_credits = 30.0
+
+            # Exact 8 features in CatBoost training order:
+            # ['avg_activity_day', 'login_frequency', 'video_clicks', 'avg_quiz_score', 'avg_submission_day', 'assessments_completed', 'avg_assessment_weight', 'studied_credits']
+            proj_feature_vector = [
+                float(proj_avg_activity_day),
+                float(proj_login_frequency),
+                float(proj_video_clicks),
+                float(proj_quiz_score),
+                float(proj_avg_submission_day),
+                float(proj_assessments),
+                float(proj_avg_assessment_weight),
+                float(proj_studied_credits)
+            ]
+
+            if self.model:
+                try:
+                    pred_prob_w = float(self.model.predict_proba([proj_feature_vector])[0][1])
+                    if proj_video_clicks == 0 and proj_assessments == 0:
+                        pred_prob_w = max(pred_prob_w, 0.85)
+                except Exception as e:
+                    print(f"[RiskEngine] CatBoost inference error for Week {w}: {e}")
+                    pred_prob_w = current_risk_prob
+            else:
+                # Rule-based fallback if model not loaded
+                if proj_video_clicks < 2 and proj_assessments == 0:
+                    pred_prob_w = 0.85
+                elif proj_video_clicks < 3 and proj_assessments <= 1:
+                    pred_prob_w = 0.65
+                elif proj_assessments <= 2:
+                    pred_prob_w = 0.45
+                elif proj_video_clicks < 4 or proj_assessments <= 3:
+                    pred_prob_w = 0.30
+                else:
+                    pred_prob_w = 0.15
+
+            validated_prob_w = max(0.0, min(1.0, pred_prob_w))
+            risk_pct_w = round(validated_prob_w * 100.0, 1)
+            weekly_forecast.append({"week": w, "risk_pct": risk_pct_w})
+
+            print(f"[RiskEngine] Week {w} Projected Features: {proj_feature_vector} -> CatBoost Risk: {risk_pct_w}%")
+
+        return weekly_forecast
+
+

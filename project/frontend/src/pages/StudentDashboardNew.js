@@ -138,17 +138,51 @@ const StudentDashboard = () => {
       {
         label: 'Risk Score (%)',
         data: currentPrediction?.weekly_forecast?.map(f => f.risk_pct) || [0, 0, 0, 0],
-        borderColor: 'rgb(255, 99, 132)',
-        backgroundColor: 'rgba(255, 99, 132, 0.5)',
-        tension: 0.3
+        borderColor: '#EF4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+        fill: true,
+        tension: 0.35,
+        pointBackgroundColor: '#EF4444',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        pointRadius: 5,
+        pointHoverRadius: 7
       }
     ]
   };
 
   const chartOptions = {
     responsive: true,
-    plugins: { legend: { position: 'top' }, title: { display: true, text: `Dropout Risk Forecast (${selectedCourseDoc?.title || 'Selected Course'})` } },
-    scales: { y: { min: 0, max: 100 } }
+    plugins: {
+      legend: { position: 'top' },
+      title: {
+        display: true,
+        text: `Dropout Risk Forecast (${selectedCourseDoc?.title || 'Selected Course'})`,
+        font: { size: 14, weight: '600' }
+      },
+      tooltip: {
+        callbacks: {
+          label: (context) => ` Risk Forecast: ${context.parsed.y}%`
+        }
+      }
+    },
+    scales: {
+      y: {
+        min: 0,
+        max: 100,
+        ticks: {
+          callback: (value) => `${value}%`
+        },
+        grid: {
+          color: 'rgba(0, 0, 0, 0.05)'
+        }
+      },
+      x: {
+        grid: {
+          display: false
+        }
+      }
+    }
   };
 
   return (
