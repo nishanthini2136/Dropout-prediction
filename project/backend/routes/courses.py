@@ -9,6 +9,31 @@ from werkzeug.utils import secure_filename
 
 courses_bp = Blueprint('courses', __name__)
 
+def enrich_course_module_durations(course):
+    """Detect and ensure exact durations directly from local uploaded video files for all modules/lessons."""
+    if not course or not isinstance(course, dict):
+        return course
+    upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
+    from utils.media_utils import get_file_duration_formatted
+    modules = course.get('modules', [])
+    if isinstance(modules, list):
+        for mod in modules:
+            if not isinstance(mod, dict):
+                continue
+            lessons = mod.get('lessons') or mod.get('resources') or []
+            for lesson in lessons:
+                if not isinstance(lesson, dict):
+                    continue
+                url = lesson.get('url', '')
+                if url and url.startswith('/static/uploads/'):
+                    filename = secure_filename(url.replace('/static/uploads/', ''))
+                    filepath = os.path.join(upload_folder, filename)
+                    if os.path.exists(filepath):
+                        detected = get_file_duration_formatted(filepath)
+                        if detected:
+                            lesson['duration'] = detected
+    return course
+
 @courses_bp.route('/api/courses', methods=['GET'])
 def get_all_courses():
     try:
@@ -36,6 +61,7 @@ def get_all_courses():
             course['capacity'] = capacity
             course['enrolled_count'] = enrolled_count
             course['seats_left'] = max(0, capacity - enrolled_count)
+            enrich_course_module_durations(course)
         
         return jsonify(courses), 200
         
@@ -62,6 +88,7 @@ def get_course(course_id):
         course['capacity'] = capacity
         course['enrolled_count'] = enrolled_count
         course['seats_left'] = max(0, capacity - enrolled_count)
+        enrich_course_module_durations(course)
         
         return jsonify({'course': course}), 200
         
@@ -121,6 +148,50 @@ def process_course_files(request_files, data, course=None):
         {'id': 'reference', 'title': 'Reference Materials PDF', 'type': 'pdf', 'url': r_url},
         {'id': 'exercises', 'title': 'Practice Exercises PDF', 'type': 'pdf', 'url': e_url}
     ]
+
+    # Process module video and resource file uploads
+    from utils.media_utils import get_file_duration_formatted
+    modules = data.get('modules', [])
+    if isinstance(modules, list):
+        for m_idx, mod in enumerate(modules):
+            if not isinstance(mod, dict):
+                continue
+            # Check resources or lessons
+            res_list = mod.get('resources') or mod.get('lessons') or []
+            for r_idx, res in enumerate(res_list):
+                if not isinstance(res, dict):
+                    continue
+                file_keys = [
+                    f"module_{m_idx}_resource_{r_idx}_video",
+                    f"module_{mod.get('id')}_resource_{res.get('id')}_video",
+                    f"video_{m_idx}_{r_idx}",
+                    f"module_{m_idx}_resource_{r_idx}_file"
+                ]
+                for fk in file_keys:
+                    if fk in request_files:
+                        vfile = request_files[fk]
+                        if vfile and vfile.filename:
+                            v_orig_name = secure_filename(vfile.filename)
+                            v_ext = v_orig_name.rsplit('.', 1)[1].lower() if '.' in v_orig_name else 'mp4'
+                            v_new_name = f"video_{uuid.uuid4().hex[:10]}.{v_ext}"
+                            v_full_path = os.path.join(upload_folder, v_new_name)
+                            vfile.save(v_full_path)
+                            res['url'] = f"/static/uploads/{v_new_name}"
+                            res['type'] = 'video'
+                            detected_dur = get_file_duration_formatted(v_full_path)
+                            if detected_dur:
+                                res['duration'] = detected_dur
+                            break
+
+                # If local file url exists and duration is missing or empty, detect from disk
+                r_url = res.get('url', '')
+                if r_url and r_url.startswith('/static/uploads/') and not res.get('duration'):
+                    local_fname = r_url.replace('/static/uploads/', '')
+                    local_path = os.path.join(upload_folder, secure_filename(local_fname))
+                    if os.path.exists(local_path):
+                        detected_dur = get_file_duration_formatted(local_path)
+                        if detected_dur:
+                            res['duration'] = detected_dur
 
 @courses_bp.route('/api/courses', methods=['POST'])
 @admin_required

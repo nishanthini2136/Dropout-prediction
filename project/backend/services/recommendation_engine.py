@@ -4,6 +4,9 @@ import pandas as pd
 from bson import ObjectId
 from config.database import db
 
+_CACHED_KNN_MODEL = None
+_CACHED_KNN_SCALER = None
+
 class RecommendationEngine:
     def __init__(self):
         self.knn_model = None
@@ -11,13 +14,21 @@ class RecommendationEngine:
         self._load_models()
 
     def _load_models(self):
+        global _CACHED_KNN_MODEL, _CACHED_KNN_SCALER
+        if _CACHED_KNN_MODEL is not None and _CACHED_KNN_SCALER is not None:
+            self.knn_model = _CACHED_KNN_MODEL
+            self.scaler = _CACHED_KNN_SCALER
+            return
+
         try:
             model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'knn_model.pkl')
             scaler_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'knn_scaler.pkl')
             if os.path.exists(model_path) and os.path.exists(scaler_path):
-                self.knn_model = joblib.load(model_path)
-                self.scaler = joblib.load(scaler_path)
-                print("Loaded KNN Recommendation models successfully.")
+                _CACHED_KNN_MODEL = joblib.load(model_path)
+                _CACHED_KNN_SCALER = joblib.load(scaler_path)
+                self.knn_model = _CACHED_KNN_MODEL
+                self.scaler = _CACHED_KNN_SCALER
+                print("Loaded KNN Recommendation models into RAM cache successfully.")
             else:
                 print("KNN models not found. Using fallback generic recommendations.")
         except Exception as e:

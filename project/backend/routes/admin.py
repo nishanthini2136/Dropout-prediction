@@ -92,8 +92,6 @@ def dashboard_events():
 def get_students():
     try:
         user_model = User()
-        from services.risk_engine import RiskEngine
-        risk_engine = RiskEngine()
         students = user_model.get_all_students()
         
         for student in students:
@@ -102,18 +100,13 @@ def get_students():
             if 'password' in student:
                 del student['password']
 
-            # Compute or fetch up-to-date risk badge, score, and last_calculated for student
-            badge, score, last_calc = risk_engine.update_user_overall_risk(s_id)
-            if (not student.get('risk_badge') or student.get('risk_badge') == 'Low') and score == 0.0:
-                try:
-                    risk_engine.predict_risk(s_id)
-                    badge, score, last_calc = risk_engine.update_user_overall_risk(s_id)
-                except Exception as ex:
-                    print(f"Error computing live risk for student {s_id}: {ex}")
-
-            student['risk_badge'] = badge
-            student['risk_score'] = score
-            student['last_calculated'] = last_calc
+            # Use saved risk fields from user document for fast response
+            student['risk_badge'] = student.get('risk_badge', 'Low')
+            student['risk_score'] = student.get('risk_score', 0.0)
+            last_calc = student.get('last_calculated')
+            if hasattr(last_calc, 'isoformat'):
+                last_calc = last_calc.isoformat()
+            student['last_calculated'] = last_calc or student.get('updated_at') or ''
 
         return jsonify(students), 200
     except Exception as e:

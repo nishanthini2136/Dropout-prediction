@@ -5,6 +5,8 @@ from datetime import datetime
 from config.database import db
 from bson import ObjectId
 
+_CACHED_CATBOOST_MODEL = None
+
 class RiskEngine:
     def __init__(self):
         self.model_version = "CatBoost_v1.0"
@@ -12,11 +14,17 @@ class RiskEngine:
         self._load_model()
 
     def _load_model(self):
+        global _CACHED_CATBOOST_MODEL
+        if _CACHED_CATBOOST_MODEL is not None:
+            self.model = _CACHED_CATBOOST_MODEL
+            return
+
         try:
             model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'catboost_model.pkl')
             if os.path.exists(model_path):
-                self.model = joblib.load(model_path)
-                print(f"[RiskEngine] Loaded {self.model_version} from {model_path}")
+                _CACHED_CATBOOST_MODEL = joblib.load(model_path)
+                self.model = _CACHED_CATBOOST_MODEL
+                print(f"[RiskEngine] Loaded {self.model_version} into RAM cache from {model_path}")
             else:
                 print(f"[RiskEngine] Model not found at {model_path}. Using rule-based per-course Risk Engine.")
         except Exception as e:

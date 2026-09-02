@@ -24,16 +24,27 @@ class MediaModel:
         file_storage.save(file_path)
         # Build URL relative to static folder (Flask will serve /static/...)
         url = f"/static/uploads/{course_id}/{module_id}/{filename}"
+        # Detect duration if media type is video
+        duration = None
+        if media_type == 'video':
+            from utils.media_utils import get_file_duration_formatted
+            duration = get_file_duration_formatted(file_path)
+
         media_doc = {
             'course_id': ObjectId(course_id),
             'module_id': ObjectId(module_id),
             'type': media_type,
             'filename': filename,
             'url': url,
+            'duration': duration,
             'uploaded_at': datetime.utcnow()
         }
         result = self.collection.insert_one(media_doc)
-        media_doc['_id'] = result.inserted_id
+        media_doc['_id'] = str(result.inserted_id)
+        media_doc['course_id'] = str(media_doc['course_id'])
+        media_doc['module_id'] = str(media_doc['module_id'])
+        if isinstance(media_doc.get('uploaded_at'), datetime):
+            media_doc['uploaded_at'] = media_doc['uploaded_at'].isoformat()
         return media_doc
 
     def get_media_by_module(self, module_id: str):

@@ -140,9 +140,13 @@ class Enrollment:
                         module_progress = progress_data
                         break
             
-            print(f"Module {module_id_str}: video_watched={module_progress.get('video_watched')}, quiz_completed={module_progress.get('quiz_completed')}")
-            
-            if module_progress.get('video_watched') or module_progress.get('quiz_completed'):
+            has_quiz = bool(module.get('quizzes') and len(module.get('quizzes')) > 0)
+            if has_quiz:
+                is_done = bool(module_progress.get('quiz_completed'))
+            else:
+                is_done = bool(module_progress.get('video_watched') or module_progress.get('quiz_completed'))
+                
+            if is_done:
                 completed_modules += 1
         
         print(f"Completed modules: {completed_modules}/{total_modules}")

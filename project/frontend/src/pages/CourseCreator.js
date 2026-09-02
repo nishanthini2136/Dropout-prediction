@@ -156,10 +156,105 @@ const CourseCreator = () => {
     ));
   };
 
+  const formatDetectedDuration = (seconds) => {
+    if (!seconds || isNaN(seconds) || seconds <= 0) return '';
+    const totalSec = Math.round(seconds);
+    const hours = Math.floor(totalSec / 3600);
+    const minutes = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    if (hours > 0) {
+      const minStr = String(minutes).padStart(2, '0');
+      const secStr = String(secs).padStart(2, '0');
+      return secs > 0 ? `${hours}h ${minStr}m ${secStr}s` : `${hours}h ${minStr}m`;
+    }
+    if (minutes > 0) {
+      return secs > 0 ? `${minutes} min ${secs} sec` : `${minutes} min`;
+    }
+    return `${secs} sec`;
+  };
+
+  const handleVideoFileUpload = (e, moduleId, resourceId) => {
+    e.stopPropagation();
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Detect exact duration via HTML5 Video metadata
+    const tempUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.src = tempUrl;
+
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(tempUrl);
+      const exactDuration = formatDetectedDuration(video.duration);
+      setModules(prev => prev.map(mod => {
+        if (mod.id !== moduleId) return mod;
+        return {
+          ...mod,
+          resources: mod.resources.map(res => {
+            if (res.id !== resourceId) return res;
+            return {
+              ...res,
+              type: 'video',
+              videoFile: file,
+              title: res.title || file.name.replace(/\.[^/.]+$/, ''),
+              url: file.name,
+              duration: exactDuration,
+              detectedDuration: exactDuration
+            };
+          })
+        };
+      }));
+      setToastMessage(`🎥 Video selected: Exact duration detected as ${exactDuration}`);
+    };
+
+    video.onerror = () => {
+      URL.revokeObjectURL(tempUrl);
+      setModules(prev => prev.map(mod => {
+        if (mod.id !== moduleId) return mod;
+        return {
+          ...mod,
+          resources: mod.resources.map(res => {
+            if (res.id !== resourceId) return res;
+            return {
+              ...res,
+              type: 'video',
+              videoFile: file,
+              title: res.title || file.name.replace(/\.[^/.]+$/, ''),
+              url: file.name
+            };
+          })
+        };
+      }));
+    };
+  };
+
+  const autoDetectUrlDuration = (url, moduleId, resourceId) => {
+    if (!url) return;
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/static/uploads/')) {
+      const fullUrl = url.startsWith('/') ? `http://localhost:5000${url}` : url;
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.src = fullUrl;
+      video.onloadedmetadata = () => {
+        const exactDuration = formatDetectedDuration(video.duration);
+        updateResource(moduleId, resourceId, 'duration', exactDuration);
+        setToastMessage(`⏱️ Detected video duration: ${exactDuration}`);
+      };
+      video.onerror = () => {
+        console.log('Could not automatically probe remote video duration');
+      };
+    }
+  };
+
   const handleResourceChange = (e, moduleId, resourceId, field) => {
     e.preventDefault();
     e.stopPropagation();
-    updateResource(moduleId, resourceId, field, e.target.value);
+    const val = e.target.value;
+    updateResource(moduleId, resourceId, field, val);
+    if (field === 'url' && (val.endsWith('.mp4') || val.endsWith('.webm') || val.endsWith('.ogg'))) {
+      autoDetectUrlDuration(val, moduleId, resourceId);
+    }
   };
 
   const deleteResource = (moduleId, resourceId) => {
@@ -387,7 +482,25 @@ const CourseCreator = () => {
         formData.append('practice_exercises_pdf', basicInfo.practice_exercises_pdf);
       }
 
-      formData.append('modules', JSON.stringify(modules));
+      // Attach module video files to formData
+      modules.forEach((mod, mIdx) => {
+        (mod.resources || []).forEach((res, rIdx) => {
+          if (res.videoFile instanceof File) {
+            formData.append(`module_${mIdx}_resource_${rIdx}_video`, res.videoFile);
+          }
+        });
+      });
+
+      // Prepare clean modules array for JSON serialization (omit File objects)
+      const cleanModulesDraft = modules.map(mod => ({
+        ...mod,
+        resources: (mod.resources || []).map(res => {
+          const { videoFile, ...cleanRes } = res;
+          return cleanRes;
+        })
+      }));
+
+      formData.append('modules', JSON.stringify(cleanModulesDraft));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
@@ -467,7 +580,25 @@ const CourseCreator = () => {
         formData.append('practice_exercises_pdf', basicInfo.practice_exercises_pdf);
       }
 
-      formData.append('modules', JSON.stringify(modules));
+      // Attach module video files to formData
+      modules.forEach((mod, mIdx) => {
+        (mod.resources || []).forEach((res, rIdx) => {
+          if (res.videoFile instanceof File) {
+            formData.append(`module_${mIdx}_resource_${rIdx}_video`, res.videoFile);
+          }
+        });
+      });
+
+      // Prepare clean modules array for JSON serialization (omit File objects)
+      const cleanModulesPublish = modules.map(mod => ({
+        ...mod,
+        resources: (mod.resources || []).map(res => {
+          const { videoFile, ...cleanRes } = res;
+          return cleanRes;
+        })
+      }));
+
+      formData.append('modules', JSON.stringify(cleanModulesPublish));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
@@ -993,7 +1124,7 @@ const CourseCreator = () => {
                                         fontFamily: 'Poppins, sans-serif'
                                       }}
                                     >
-                                      <option value="video">Video Lecture</option>
+                                      <option value="video">Video Lecture (Upload/URL)</option>
                                       <option value="pdf">PDF Notes</option>
                                       <option value="ppt">PPT Slides</option>
                                       <option value="link">Reference Link</option>
@@ -1023,14 +1154,91 @@ const CourseCreator = () => {
                                   </div>
                                   <div>
                                     <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#4B5563', marginBottom: '6px' }}>
-                                      Duration/Size
+                                      {resource.type === 'video' ? 'Video Duration (Exact)' : 'Duration/Size'}
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                      <input
+                                        type="text"
+                                        value={resource.duration}
+                                        onChange={(e) => handleResourceChange(e, module.id, resource.id, 'duration')}
+                                        onClick={(e) => e.stopPropagation()}
+                                        placeholder={resource.type === 'video' ? 'Auto-detected on upload' : 'e.g., 15 min, 2MB'}
+                                        style={{
+                                          flex: 1,
+                                          padding: '8px 12px',
+                                          border: '1px solid #E5E7EB',
+                                          borderRadius: '6px',
+                                          fontSize: '13px',
+                                          fontFamily: 'Poppins, sans-serif'
+                                        }}
+                                      />
+                                      {resource.type === 'video' && resource.url && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost btn-sm"
+                                          onClick={() => autoDetectUrlDuration(resource.url, module.id, resource.id)}
+                                          title="Re-detect duration from video URL"
+                                          style={{ padding: '4px 8px', fontSize: '11px', border: '1px solid #CBD5E1' }}
+                                        >
+                                          ⏱️ Detect
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {resource.type === 'video' ? (
+                                  <div style={{ background: '#F8FAFC', padding: '12px', borderRadius: '8px', border: '1px dashed #CBD5E1', marginBottom: '6px' }}>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#1E293B', marginBottom: '4px' }}>
+                                          📹 Upload Video File (Auto-Detects Exact Duration)
+                                        </label>
+                                        <input
+                                          type="file"
+                                          accept="video/mp4,video/webm,video/ogg,video/quicktime,video/*"
+                                          onChange={(e) => handleVideoFileUpload(e, module.id, resource.id)}
+                                          style={{ fontSize: '12px', width: '100%' }}
+                                        />
+                                        {resource.videoFile && (
+                                          <div style={{ fontSize: '12px', color: '#047857', marginTop: '4px', fontWeight: '500' }}>
+                                            ✓ {resource.videoFile.name} {resource.duration ? `(${resource.duration})` : ''}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#1E293B', marginBottom: '4px' }}>
+                                          🔗 Or Direct Video / YouTube URL
+                                        </label>
+                                        <input
+                                          type="text"
+                                          value={resource.url}
+                                          onChange={(e) => handleResourceChange(e, module.id, resource.id, 'url')}
+                                          onClick={(e) => e.stopPropagation()}
+                                          placeholder="https://www.youtube.com/watch?v=... or /static/uploads/..."
+                                          style={{
+                                            width: '100%',
+                                            padding: '6px 10px',
+                                            border: '1px solid #E5E7EB',
+                                            borderRadius: '6px',
+                                            fontSize: '12px',
+                                            fontFamily: 'Poppins, sans-serif'
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#4B5563', marginBottom: '6px' }}>
+                                      URL / File Path
                                     </label>
                                     <input
                                       type="text"
-                                      value={resource.duration}
-                                      onChange={(e) => handleResourceChange(e, module.id, resource.id, 'duration')}
+                                      value={resource.url}
+                                      onChange={(e) => handleResourceChange(e, module.id, resource.id, 'url')}
                                       onClick={(e) => e.stopPropagation()}
-                                      placeholder="e.g., 15 min, 2MB"
+                                      placeholder="Enter URL or file path"
                                       style={{
                                         width: '100%',
                                         padding: '8px 12px',
@@ -1041,27 +1249,7 @@ const CourseCreator = () => {
                                       }}
                                     />
                                   </div>
-                                </div>
-                                <div>
-                                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#4B5563', marginBottom: '6px' }}>
-                                    URL / File Path
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={resource.url}
-                                    onChange={(e) => handleResourceChange(e, module.id, resource.id, 'url')}
-                                    onClick={(e) => e.stopPropagation()}
-                                    placeholder="Enter URL or file path"
-                                    style={{
-                                      width: '100%',
-                                      padding: '8px 12px',
-                                      border: '1px solid #E5E7EB',
-                                      borderRadius: '6px',
-                                      fontSize: '13px',
-                                      fontFamily: 'Poppins, sans-serif'
-                                    }}
-                                  />
-                                </div>
+                                )}
                               </div>
                             ))}
                           </div>

@@ -56,35 +56,41 @@ def watch_module_video(module_id):
     user_id = request.current_user_id
     data = request.get_json(silent=True) or {}
     course_id = data.get('course_id') or request.args.get('course_id')
+    lesson_id = data.get('lesson_id')
     try:
-        ProgressModel().set_video_watched(user_id, module_id, course_id=course_id)
+        progress_res = ProgressModel().set_video_watched(user_id, module_id, lesson_id=lesson_id, course_id=course_id)
         from models.engagement import EngagementModel
         EngagementModel().log_event(user_id, course_id, module_id, 'watch', duration=300)
         from services.risk_engine import RiskEngine
         RiskEngine().predict_risk(user_id, course_id=course_id)
+        all_videos_completed = bool(progress_res and progress_res.get('video_watched'))
     except Exception as e:
         return jsonify({'error': f'Could not record progress: {str(e)}'}), 500
-    return jsonify({'message': 'Video marked as watched'}), 200
+    return jsonify({
+        'message': 'Video marked as watched',
+        'all_videos_completed': all_videos_completed
+    }), 200
 
 # ---------------------------------------------------------------------------
-# Retrieve the quiz for a module, only if the video has been completed
+# Retrieve the quiz for a module, only if all module videos have been completed
 @student_bp.route('/module/<module_id>/quiz', methods=['GET'])
 @token_required
 def get_module_quiz(module_id):
-    """Return the quiz associated with the module if the video is completed.
+    """Return the quiz associated with the module if all module videos are completed.
 
-    Returns HTTP 403 if the video has not been watched.
+    Returns HTTP 403 if all videos have not been watched.
     """
     user_id = request.current_user_id
+    course_id = request.args.get('course_id')
 
     # Check progress — wrap in try/except in case module_id is not a valid ObjectId
     try:
-        video_watched = ProgressModel().is_video_watched(user_id, module_id)
+        video_watched = ProgressModel().is_video_watched(user_id, module_id, course_id=course_id)
     except Exception:
         video_watched = False
 
     if not video_watched:
-        return jsonify({'error': 'Quiz is locked until the video is completed'}), 403
+        return jsonify({'error': 'Quiz is locked until all videos in this module are completed'}), 403
 
     try:
         quizzes = []
@@ -261,8 +267,6 @@ def log_engagement():
     try:
         from models.engagement import EngagementModel
         EngagementModel().log_event(user_id, course_id, module_id, event_type, duration)
-        from services.risk_engine import RiskEngine
-        RiskEngine().predict_risk(user_id)
         return jsonify({'message': 'Logged'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -334,15 +338,20 @@ def get_dashboard_stats():
         
         enrollments = Enrollment().get_student_enrollments(user_id)
         predictions_map = {}
+        pred_model = PredictionModel()
         
         for e in enrollments:
             c_id = str(e['course_id'])
-            pred = RiskEngine().predict_risk(user_id, c_id)
+            # Fast DB lookup first
+            pred = pred_model.get_prediction(user_id, c_id)
+            if not pred:
+                # Compute only if missing
+                pred = RiskEngine().predict_risk(user_id, c_id)
             if pred:
                 predictions_map[c_id] = _serialize(pred)
 
         if not predictions_map:
-            preds = PredictionModel().get_prediction(user_id)
+            preds = pred_model.get_prediction(user_id)
             if isinstance(preds, list) and len(preds) > 0:
                 for p in preds:
                     p_ser = _serialize(p)

@@ -6,6 +6,119 @@ import './Dashboard.css';
 import Navbar from '../components/Navbar';
 import Toast from '../components/Toast';
 
+// Embedded YouTube Player component with automatic completion detection
+const YouTubePlayer = ({ videoId, onEnded }) => {
+  const containerRef = React.useRef(null);
+  const playerRef = React.useRef(null);
+  const endedRef = React.useRef(false);
+
+  React.useEffect(() => {
+    endedRef.current = false;
+    let isMounted = true;
+    let playerInstance = null;
+
+    const initPlayer = () => {
+      if (!containerRef.current || !window.YT || !window.YT.Player) return false;
+      try {
+        playerInstance = new window.YT.Player(containerRef.current, {
+          videoId: videoId,
+          playerVars: {
+            autoplay: 1,
+            enablejsapi: 1,
+            rel: 0,
+            modestbranding: 1,
+            origin: window.location.origin
+          },
+          events: {
+            onStateChange: (event) => {
+              // 0 represents YT.PlayerState.ENDED
+              if ((event.data === 0 || (window.YT && window.YT.PlayerState && event.data === window.YT.PlayerState.ENDED)) && !endedRef.current) {
+                endedRef.current = true;
+                if (onEnded) onEnded();
+              }
+            }
+          }
+        });
+        playerRef.current = playerInstance;
+        return true;
+      } catch (err) {
+        console.error('Error initializing YT Player:', err);
+        return false;
+      }
+    };
+
+    if (window.YT && window.YT.Player) {
+      initPlayer();
+    } else {
+      const interval = setInterval(() => {
+        if (!isMounted) {
+          clearInterval(interval);
+          return;
+        }
+        if (window.YT && window.YT.Player) {
+          clearInterval(interval);
+          initPlayer();
+        }
+      }, 200);
+      return () => {
+        isMounted = false;
+        clearInterval(interval);
+        if (playerRef.current && playerRef.current.destroy) {
+          try { playerRef.current.destroy(); } catch (e) {}
+        }
+      };
+    }
+
+    // Backup postMessage listener
+    const handleWindowMessage = (event) => {
+      try {
+        if (typeof event.data === 'string') {
+          const data = JSON.parse(event.data);
+          if (data.event === 'onStateChange' && data.info === 0 && !endedRef.current) {
+            endedRef.current = true;
+            if (onEnded) onEnded();
+          }
+          if (data.event === 'infoDelivery' && data.info && data.info.playerState === 0 && !endedRef.current) {
+            endedRef.current = true;
+            if (onEnded) onEnded();
+          }
+        }
+      } catch (e) {}
+    };
+    window.addEventListener('message', handleWindowMessage);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('message', handleWindowMessage);
+      if (playerRef.current && playerRef.current.destroy) {
+        try { playerRef.current.destroy(); } catch (e) {}
+      }
+    };
+  }, [videoId]);
+
+  return (
+    <div style={{
+      position: 'relative',
+      paddingBottom: '56.25%',
+      height: 0,
+      overflow: 'hidden',
+      borderRadius: '8px',
+      backgroundColor: '#000'
+    }}>
+      <div
+        ref={containerRef}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%'
+        }}
+      />
+    </div>
+  );
+};
+
 const CourseDetails = () => {
   const { id } = useParams();
   const { user, logout } = useAuth();
@@ -18,12 +131,60 @@ const CourseDetails = () => {
   const [enrollment, setEnrollment] = useState(null);
   const [activeModule, setActiveModule] = useState(null);
   const [activeLesson, setActiveLesson] = useState(null);
-  // Helper to check if a lesson is completed based on enrollment data
+  const [moduleWatchedLessons, setModuleWatchedLessons] = useState({});
+  const completingRef = React.useRef(false);
+
+  // Load YouTube IFrame API script once
+  useEffect(() => {
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      if (firstScriptTag && firstScriptTag.parentNode) {
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+      } else {
+        document.head.appendChild(tag);
+      }
+    }
+  }, []);
+
+  // Helper to check if a specific lesson is completed
   const isLessonCompleted = (moduleId, lessonId) => {
-    const key = `${moduleId}:${lessonId}`;
-    return (enrollment?.completed_lessons || []).includes(key);
+    if (!moduleId || !lessonId) return false;
+    const mIdStr = String(moduleId);
+    const lIdStr = String(lessonId);
+
+    // 1. Check moduleWatchedLessons state
+    const watchedList = (moduleWatchedLessons[mIdStr] || moduleWatchedLessons[moduleId] || []).map(String);
+    if (watchedList.includes(lIdStr)) return true;
+
+    // 2. Check enrollment completed_lessons
+    const comp = (enrollment?.completed_lessons || []).map(String);
+    return comp.includes(`${moduleId}:${lessonId}`) || comp.includes(`${mIdStr}:${lIdStr}`);
   };
+
+  const getModuleVideoLessons = (mod) => {
+    if (!mod) return [];
+    const lessons = mod.lessons || mod.resources || [];
+    return lessons.filter(l => l.type === 'video' || (l.url && (l.url.includes('youtube.com') || l.url.includes('youtu.be') || l.url.endsWith('.mp4') || l.url.endsWith('.webm') || l.url.startsWith('/static/uploads/'))));
+  };
+
+  const areAllModuleVideosCompleted = (mod) => {
+    if (!mod) return false;
+    const modId = mod.id !== undefined ? mod.id : mod._id;
+    const videoLessons = getModuleVideoLessons(mod);
+    if (videoLessons.length === 0) return true;
+    return videoLessons.every(v => 
+      isLessonCompleted(modId, v.id) || 
+      isLessonCompleted(mod._id, v.id) || 
+      isLessonCompleted(modId, v._id) || 
+      isLessonCompleted(mod._id, v._id)
+    );
+  };
+
   const [showVideoPlayer, setShowVideoPlayer] = useState(false);
+  const [liveVideoDuration, setLiveVideoDuration] = useState('');
+  const [detectedDurations, setDetectedDurations] = useState({});
   const [pdfModal, setPdfModal] = useState({ open: false, url: '', title: '' });
   const [toastMessage, setToastMessage] = useState('');
   const [player, setPlayer] = useState(null);
@@ -31,7 +192,6 @@ const CourseDetails = () => {
   const [videoEnded, setVideoEnded] = useState(false);
   const [quizData, setQuizData] = useState(null);
   const [quizError, setQuizError] = useState('');
-
 
   const [userAnswers, setUserAnswers] = useState({});
   const [quizResults, setQuizResults] = useState({});
@@ -41,80 +201,59 @@ const CourseDetails = () => {
   const [autoNavCountdown, setAutoNavCountdown] = useState(0);
   const [isAutoNavigating, setIsAutoNavigating] = useState(false);
 
-
-
   useEffect(() => {
     fetchCourseDetails();
   }, [id]);
 
-  // Load YouTube IFrame API
+  // Synchronize active module quiz loading when enrollment, progress or activeModule changes
   useEffect(() => {
-    if (!window.YT) {
-      const tag = document.createElement('script');
-      tag.src = 'https://www.youtube.com/iframe_api';
-      const firstScriptTag = document.getElementsByTagName('script')[0];
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-    }
-  }, []);
-
-  // Initialize player when video modal opens
-  useEffect(() => {
-    let playerInstance = null;
-
-    const createPlayer = (videoId) => {
-      try {
-        playerInstance = new window.YT.Player('youtube-player', {
-          videoId: videoId,
-          playerVars: {
-            autoplay: 1,
-            modestbranding: 1,
-            rel: 0
-          },
-          events: {
-            'onReady': (event) => {
-              console.log('YouTube player ready');
-              setPlayer(event.target);
-            },
-            'onStateChange': (event) => {
-              if (event.data === window.YT.PlayerState.ENDED) {
-                console.log('Video ended, marking as complete');
-                handleVideoComplete();
-              }
-            }
-          }
-        });
-      } catch (err) {
-        console.error('Error creating YouTube player:', err);
-      }
-    };
-
-    if (showVideoPlayer && activeLesson?.type === 'video') {
-      const videoId = getYouTubeVideoId(activeLesson.url);
-      console.log('Initializing YouTube player with video ID:', videoId);
-      if (videoId) {
-        // Check if YT API is fully ready
-        if (window.YT && window.YT.Player) {
-          createPlayer(videoId);
-        } else {
-          // Wait for the API to load
-          window.onYouTubeIframeAPIReady = () => {
-            createPlayer(videoId);
-          };
-        }
+    if (isEnrolled && activeModule) {
+      const allDone = areAllModuleVideosCompleted(activeModule) || videoWatchedModuleIds.some(id => getModuleIdVariants(activeModule).includes(id));
+      if (allDone) {
+        fetchQuiz(activeModule._id || activeModule.id);
+      } else {
+        setQuizData(null);
+        setQuizError('');
       }
     }
+  }, [activeModule, isEnrolled, enrollment, videoWatchedModuleIds, moduleWatchedLessons]);
 
-    return () => {
-      if (playerInstance) {
-        try {
-          playerInstance.destroy();
-        } catch (e) {
-          console.log('Player already destroyed');
-        }
-        setPlayer(null);
+  const probeVideoDuration = (videoUrl, key) => {
+    if (!videoUrl || videoUrl === '#' || videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) return;
+    const fullUrl = videoUrl.startsWith('http://') || videoUrl.startsWith('https://') || videoUrl.startsWith('blob:') 
+      ? videoUrl 
+      : `http://localhost:5000${videoUrl.startsWith('/') ? videoUrl : '/static/uploads/' + videoUrl}`;
+    
+    const v = document.createElement('video');
+    v.preload = 'metadata';
+    v.src = fullUrl;
+    v.onloadedmetadata = () => {
+      const sec = v.duration;
+      if (sec && !isNaN(sec) && sec > 0) {
+        const totalSec = Math.round(sec);
+        const mins = Math.floor(totalSec / 60);
+        const remSec = totalSec % 60;
+        const formatted = mins > 0 ? (remSec > 0 ? `${mins} min ${remSec} sec` : `${mins} min`) : `${remSec} sec`;
+        setDetectedDurations(prev => ({
+          ...prev,
+          [key]: formatted
+        }));
       }
     };
-  }, [showVideoPlayer, activeLesson]);
+  };
+
+  const detectAllModuleVideoDurations = (mods) => {
+    if (!Array.isArray(mods)) return;
+    mods.forEach(mod => {
+      const lessons = mod.lessons || mod.resources || [];
+      lessons.forEach(l => {
+        if (l.type === 'video' || (l.url && (l.url.endsWith('.mp4') || l.url.endsWith('.webm') || l.url.startsWith('/static/uploads/')))) {
+          const key = String(l.id || l._id || l.title || l.url);
+          probeVideoDuration(l.url, key);
+        }
+      });
+    });
+  };
 
   const fetchCourseDetails = async () => {
     try {
@@ -123,6 +262,7 @@ const CourseDetails = () => {
       setCourse(courseData);
 
       const mods = courseData?.modules || [];
+      detectAllModuleVideoDurations(mods);
       if (mods.length > 0 && !activeModule) {
         setActiveModule(mods[0]);
         const firstLessons = mods[0].lessons || mods[0].resources || [];
@@ -151,6 +291,7 @@ const CourseDetails = () => {
       if (res.data) {
         const quizDone = [];
         const videoDone = [];
+        const watchedMap = {};
         Object.keys(res.data).forEach(modId => {
           if (res.data[modId].quiz_completed) {
             quizDone.push(String(modId));
@@ -158,9 +299,13 @@ const CourseDetails = () => {
           if (res.data[modId].video_watched) {
             videoDone.push(String(modId));
           }
+          if (Array.isArray(res.data[modId].watched_lessons)) {
+            watchedMap[String(modId)] = res.data[modId].watched_lessons.map(String);
+          }
         });
         setCompletedModuleIds(quizDone);
         setVideoWatchedModuleIds(videoDone);
+        setModuleWatchedLessons(watchedMap);
       }
     } catch (e) {
       console.log('Error fetching student progress:', e);
@@ -178,24 +323,32 @@ const CourseDetails = () => {
   const isModuleCompleted = (moduleObj) => {
     if (!moduleObj) return false;
     const variants = getModuleIdVariants(moduleObj);
-    // A module is "Done" if its quiz is completed OR its video has been watched
-    return variants.some(id => completedModuleIds.includes(id) || videoWatchedModuleIds.includes(id));
+    // 1. If quiz is completed, module is fully done
+    const quizDone = variants.some(id => completedModuleIds.includes(id));
+    if (quizDone) return true;
+
+    // 2. If module has no quiz configured, watching all videos marks it as done
+    const hasQuiz = Array.isArray(moduleObj.quizzes) && moduleObj.quizzes.length > 0;
+    if (!hasQuiz) {
+      return areAllModuleVideosCompleted(moduleObj) || variants.some(id => videoWatchedModuleIds.includes(id));
+    }
+    return false;
   };
 
   const isModuleUnlocked = (moduleObj, index) => {
     if (!isEnrolled) return true; // Allow non-enrolled students to preview all modules
-    if (index === 0) return true;
+    if (index === 0) return true; // Module 1 always unlocked
     if (isModuleCompleted(moduleObj)) return true;
+
+    const variants = getModuleIdVariants(moduleObj);
+    const inUnlockedState = variants.some(id => unlockedModuleIds.includes(id) || completedModuleIds.includes(id));
+    if (inUnlockedState) return true;
 
     const allMods = course?.modules || modules || [];
     const prevModule = allMods[index - 1];
     if (!prevModule) return true;
 
-    const prevCompleted = isModuleCompleted(prevModule);
-    const variants = getModuleIdVariants(moduleObj);
-    const inUnlockedState = variants.some(id => unlockedModuleIds.includes(id));
-
-    return prevCompleted || inUnlockedState;
+    return isModuleCompleted(prevModule);
   };
 
   const checkEnrollment = async () => {
@@ -220,7 +373,6 @@ const CourseDetails = () => {
       console.error('Error checking enrollment:', error);
     }
   };
-
 
   const handleEnroll = async () => {
     if (!user) {
@@ -255,12 +407,9 @@ const CourseDetails = () => {
       }, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-      setToastMessage('Lesson marked as complete');
-      // Backend already recalculates progress, just refresh enrollment data
       await checkEnrollment();
     } catch (error) {
       console.error('Error updating lesson progress:', error);
-      setToastMessage('Error updating progress');
     }
   };
 
@@ -282,19 +431,19 @@ const CourseDetails = () => {
     }
   };
 
-  // Fetch quiz for a module after video completion
+  // Fetch quiz for a module after all videos in the module are completed
   const fetchQuiz = async (moduleId) => {
     try {
       const response = await axios.get(`http://localhost:5000/api/student/module/${moduleId}/quiz?course_id=${id}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       console.log('Quiz fetched:', response.data);
-      setQuizData(response.data);
+      setQuizData(Array.isArray(response.data) ? response.data : [response.data]);
       setQuizError('');
     } catch (error) {
       console.error('Error fetching quiz:', error);
       if (error.response && error.response.status === 403) {
-        setQuizError('Quiz is locked until the video is completed');
+        setQuizError('Quiz is locked until all videos in this module are completed');
       } else if (error.response && error.response.status === 404) {
         setQuizError('No quiz available for this module');
       } else {
@@ -304,53 +453,87 @@ const CourseDetails = () => {
   };
 
   const handleVideoComplete = async () => {
-    if (activeLesson && activeModule) {
-      console.log('handleVideoComplete called for lesson:', activeLesson.id, 'in module:', activeModule.id);
-      setVideoEnded(true);
+    if (!activeLesson || !activeModule) return;
+    const lessonId = String(activeLesson.id || activeLesson._id);
+    const moduleId = String(activeModule.id || activeModule._id);
 
-      // 1. Mark lesson progress in enrollment
-      await handleLessonComplete(activeModule.id, activeLesson.id);
+    // Prevent duplicate triggers
+    if (completingRef.current) return;
+    completingRef.current = true;
+    setTimeout(() => { completingRef.current = false; }, 2000);
 
-      // 2. Mark video as watched in ProgressModel so quiz is unlocked
-      try {
-        await axios.post(
-          `http://localhost:5000/api/student/module/${activeModule._id || activeModule.id}/watch`,
-          { course_id: id },
-          { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-        );
-        console.log('Video marked as watched in ProgressModel');
+    console.log('Completing video lesson:', lessonId, 'in module:', moduleId);
+    setVideoEnded(true);
 
-        // 3. Immediately update sidebar badge: mark this module's id variants as video-watched
-        const watchedVariants = getModuleIdVariants(activeModule);
-        const updatedVideoWatched = Array.from(new Set([...videoWatchedModuleIds, ...watchedVariants]));
-        setVideoWatchedModuleIds(updatedVideoWatched);
+    // 1. Immediately record in local state for instant badge update
+    setModuleWatchedLessons(prev => {
+      const current = prev[moduleId] || [];
+      if (!current.includes(lessonId)) {
+        return { ...prev, [moduleId]: [...current, lessonId] };
+      }
+      return prev;
+    });
 
-        // 4. Recalculate enrollment progress percentage using backend
-        if (enrollment?._id) {
-          try {
-            await axios.put(`http://localhost:5000/api/enrollments/${enrollment._id}/module-progress`, {}, {
-              headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-            });
-            // Refresh enrollment to get updated progress
-            await checkEnrollment();
-          } catch (e) {
-            console.error('Error updating enrollment progress:', e);
-          }
+    // 2. Mark lesson progress in enrollment backend
+    if (enrollment?._id) {
+      await handleLessonComplete(moduleId, lessonId);
+    }
+
+    // 3. Mark this specific lesson video as watched in backend ProgressModel
+    let allVideosDoneBackend = false;
+    try {
+      const watchRes = await axios.post(
+        `http://localhost:5000/api/student/module/${activeModule._id || activeModule.id}/watch`,
+        { course_id: id, lesson_id: lessonId },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
+      allVideosDoneBackend = !!watchRes.data?.all_videos_completed;
+    } catch (err) {
+      console.error('Error marking video as watched on backend:', err);
+    }
+
+    // 4. Check all module videos status
+    const moduleVids = getModuleVideoLessons(activeModule);
+    const isLessonDoneNow = (v) => {
+      const vId = String(v.id || v._id);
+      if (vId === lessonId) return true;
+      return isLessonCompleted(activeModule.id, v.id) || isLessonCompleted(activeModule._id, v.id);
+    };
+    const completedVidsCount = moduleVids.filter(isLessonDoneNow).length;
+    const isFullyCompleted = allVideosDoneBackend || (completedVidsCount >= moduleVids.length);
+
+    if (isFullyCompleted) {
+      // Mark this module as video-watched
+      const watchedVariants = getModuleIdVariants(activeModule);
+      setVideoWatchedModuleIds(prev => Array.from(new Set([...prev, ...watchedVariants, moduleId])));
+
+      if (enrollment?._id) {
+        try {
+          await axios.put(`http://localhost:5000/api/enrollments/${enrollment._id}/module-progress`, {}, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+          });
+          await checkEnrollment();
+        } catch (e) {
+          console.error('Error updating enrollment progress:', e);
         }
-      } catch (err) {
-        console.error('Error marking video as watched:', err);
       }
 
-      // 5. Close the video modal and fetch the quiz
       setShowVideoPlayer(false);
-      setToastMessage('🎉 Video completed! Quiz is now unlocked below.');
+      setToastMessage(moduleVids.length > 1 
+        ? `🎉 All ${moduleVids.length} module videos completed! Quiz is now unlocked below.` 
+        : '🎉 Video completed! Quiz is now unlocked below.'
+      );
       await fetchQuiz(activeModule._id || activeModule.id);
 
-      // 6. Scroll to quiz section smoothly
       setTimeout(() => {
         const quizSection = document.getElementById('quiz-section');
         if (quizSection) quizSection.scrollIntoView({ behavior: 'smooth' });
       }, 400);
+    } else {
+      // Partial videos completed
+      setShowVideoPlayer(false);
+      setToastMessage(`✓ Video completed! (${completedVidsCount} of ${moduleVids.length} videos completed). Complete all ${moduleVids.length} videos in this module to unlock the quiz.`);
+      await checkEnrollment();
     }
   };
 
@@ -792,6 +975,7 @@ const CourseDetails = () => {
                   {modules.map((module, index) => {
                     const isUnlocked = isModuleUnlocked(module, index);
                     const isCompleted = isModuleCompleted(module);
+                    const allVideosWatched = areAllModuleVideosCompleted(module);
 
                     return (
                       <div
@@ -800,7 +984,13 @@ const CourseDetails = () => {
                           if (isUnlocked || !isEnrolled) {
                             setActiveModule(module);
                             const modLessons = module.lessons || module.resources || [];
-                            if (modLessons.length > 0) setActiveLesson(modLessons[0]);
+                            if (modLessons.length > 0) {
+                              setActiveLesson(modLessons[0]);
+                              setLiveVideoDuration(modLessons[0].duration || '');
+                            } else {
+                              setActiveLesson(null);
+                              setLiveVideoDuration('');
+                            }
                             setQuizData(null);
                             setQuizError('');
                             setIsAutoNavigating(false);
@@ -828,6 +1018,10 @@ const CourseDetails = () => {
                           ) : isCompleted ? (
                             <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#D1FAE5', color: '#047857' }}>
                               ✓ Done
+                            </span>
+                          ) : allVideosWatched ? (
+                            <span style={{ fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#FEF3C7', color: '#92400E' }}>
+                              📝 Quiz Ready
                             </span>
                           ) : isUnlocked ? (
                             <span style={{ fontSize: '11px', fontWeight: '600', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#DBEAFE', color: '#1E40AF' }}>
@@ -863,7 +1057,12 @@ const CourseDetails = () => {
                     </h3>
 
                     {(activeModule.lessons || activeModule.resources || []).map((lesson, index) => {
-                      const isCompleted = isLessonCompleted(activeModule.id, lesson.id);
+                      const isCompleted = isLessonCompleted(activeModule.id, lesson.id) || 
+                                          isLessonCompleted(activeModule._id, lesson.id) || 
+                                          isLessonCompleted(activeModule.id, lesson._id) || 
+                                          isLessonCompleted(activeModule._id, lesson._id);
+                      const lessonKey = String(lesson.id || lesson._id || lesson.title || lesson.url);
+                      const exactDuration = detectedDurations[lessonKey] || lesson.duration;
 
                       return (
                         <div
@@ -895,8 +1094,10 @@ const CourseDetails = () => {
                                 <div style={{ fontWeight: '500', color: '#111827' }}>
                                   {lesson.title}
                                 </div>
-                                <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                                  {lesson.duration}
+                                <div style={{ fontSize: '13px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                                  <span style={{ fontSize: '11px', background: '#E2E8F0', padding: '2px 8px', borderRadius: '4px', textTransform: 'uppercase', color: '#475569', fontWeight: '600' }}>
+                                    {lesson.type || 'video'}
+                                  </span>
                                 </div>
                               </div>
                               {isCompleted && (
@@ -909,7 +1110,7 @@ const CourseDetails = () => {
                                   fontSize: '11px',
                                   fontWeight: '600'
                                 }}>
-                                  Completed
+                                  ✓ Completed
                                 </span>
                               )}
                             </div>
@@ -923,6 +1124,7 @@ const CourseDetails = () => {
                                   setToastMessage('Please click "Enroll Now" to access video lectures and coursework!');
                                   return;
                                 }
+                                setActiveModule(activeModule);
                                 setActiveLesson(lesson);
                                 setShowVideoPlayer(true);
                               }}
@@ -1224,6 +1426,45 @@ const CourseDetails = () => {
                   })}
                 </>
               )}
+              {(!quizData || quizData.length === 0) && activeModule && (
+                <div style={{
+                  background: '#F8FAFC',
+                  border: '1px dashed #CBD5E1',
+                  borderRadius: '16px',
+                  padding: '32px 24px',
+                  marginBottom: '32px',
+                  textAlign: 'center'
+                }}>
+                  <div style={{ fontSize: '36px', marginBottom: '10px' }}>🔒</div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1E293B', marginBottom: '8px' }}>
+                    Module Assessment Quiz Locked
+                  </h3>
+                  <p style={{ color: '#64748B', fontSize: '14px', maxWidth: '540px', margin: '0 auto 16px auto', lineHeight: '1.5' }}>
+                    {(() => {
+                      const vids = getModuleVideoLessons(activeModule);
+                      const isVDone = v => isLessonCompleted(activeModule.id, v.id) || isLessonCompleted(activeModule._id, v.id) || isLessonCompleted(activeModule.id, v._id) || isLessonCompleted(activeModule._id, v._id);
+                      const doneCount = vids.filter(isVDone).length;
+                      if (vids.length > 1) {
+                        return `This module contains ${vids.length} videos. You have completed ${doneCount} of ${vids.length} videos. Complete all ${vids.length} videos in this module to unlock the assessment quiz.`;
+                      }
+                      return 'Please watch the video lesson above to unlock the module assessment quiz.';
+                    })()}
+                  </p>
+                  {(() => {
+                    const vids = getModuleVideoLessons(activeModule);
+                    const isVDone = v => isLessonCompleted(activeModule.id, v.id) || isLessonCompleted(activeModule._id, v.id) || isLessonCompleted(activeModule.id, v._id) || isLessonCompleted(activeModule._id, v._id);
+                    const doneCount = vids.filter(isVDone).length;
+                    if (vids.length > 1) {
+                      return (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: '#FEF3C7', color: '#92400E', padding: '6px 16px', borderRadius: '20px', fontSize: '13px', fontWeight: '600' }}>
+                          <span>📹 Video Progress: {doneCount} / {vids.length} completed</span>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
               {quizError && (
                 <div style={{ background: '#FEF3C7', color: '#92400E', padding: '16px', borderRadius: '8px', marginBottom: '16px', border: '1px solid #FDE68A' }}>
                   ⚠️ {quizError}
@@ -1350,73 +1591,83 @@ const CourseDetails = () => {
                 borderBottom: '1px solid #E5E7EB',
                 display: 'flex',
                 justifyContent: 'space-between',
-                alignItems: 'center'
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px'
               }}>
-                <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#111827', margin: 0 }}>
-                  {activeLesson.title}
-                </h3>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setShowVideoPlayer(false)}
-                  style={{ padding: '8px 16px' }}
-                >
-                  ✕
-                </button>
+                <div>
+                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#6366F1', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '2px' }}>
+                    {activeModule?.title || 'Course Module'}
+                  </div>
+                  <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#111827', margin: 0 }}>
+                    {activeLesson.title}
+                  </h3>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    className="btn btn-gold btn-sm"
+                    onClick={handleVideoComplete}
+                    title="Mark this video as completed"
+                    style={{ fontSize: '12px', padding: '6px 14px' }}
+                  >
+                    {isLessonCompleted(activeModule?.id || activeModule?._id, activeLesson?.id || activeLesson?._id) ? '✓ Completed' : '✓ Mark as Completed'}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => setShowVideoPlayer(false)}
+                    style={{ padding: '8px 14px', fontSize: '16px' }}
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
               <div style={{ padding: '24px' }}>
                 {activeLesson.type === 'video' ? (
-                  <div style={{
-                    position: 'relative',
-                    paddingBottom: '56.25%',
-                    height: 0,
-                    overflow: 'hidden',
-                    borderRadius: '8px',
-                    backgroundColor: '#000'
-                  }}>
-                    {getYouTubeVideoId(activeLesson.url) ? (
-                      <>
-                        <div id="youtube-player" style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%'
-                        }} />
-                        {/* Iframe fallback in case YT API doesn't load */}
-                        {!player && (
-                          <iframe
-                            src={`https://www.youtube.com/embed/${getYouTubeVideoId(activeLesson.url)}?autoplay=1&rel=0`}
-                            title={activeLesson.title}
-                            style={{
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              width: '100%',
-                              height: '100%',
-                              border: 'none'
-                            }}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <iframe
-                        src={activeLesson.url}
-                        title={activeLesson.title}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: '100%',
-                          border: 'none'
+                  getYouTubeVideoId(activeLesson.url) ? (
+                    <YouTubePlayer
+                      key={`yt-${activeModule?.id || activeModule?._id}-${activeLesson?.id || activeLesson?.title}-${getYouTubeVideoId(activeLesson.url)}`}
+                      videoId={getYouTubeVideoId(activeLesson.url)}
+                      onEnded={handleVideoComplete}
+                    />
+                  ) : (
+                    <div style={{
+                      borderRadius: '8px',
+                      overflow: 'hidden',
+                      backgroundColor: '#000',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: '380px'
+                    }}>
+                      <video
+                        key={`vid-${activeModule?.id || activeModule?._id}-${activeLesson?.id || activeLesson?.url}`}
+                        src={getResourceUrl(activeLesson.url)}
+                        controls
+                        autoPlay
+                        style={{ width: '100%', maxHeight: '520px', borderRadius: '8px', backgroundColor: '#000' }}
+                        onLoadedMetadata={(e) => {
+                          const durationSec = e.target.duration;
+                          if (durationSec && !isNaN(durationSec)) {
+                            const mins = Math.floor(durationSec / 60);
+                            const secs = Math.round(durationSec % 60);
+                            const formatted = mins > 0 ? (secs > 0 ? `${mins} min ${secs} sec` : `${mins} min`) : `${secs} sec`;
+                            setLiveVideoDuration(formatted);
+                          }
                         }}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    )}
-                  </div>
+                        onEnded={handleVideoComplete}
+                        onTimeUpdate={(e) => {
+                          const d = e.target.duration;
+                          const c = e.target.currentTime;
+                          if (d > 0 && c / d >= 0.985) {
+                            handleVideoComplete();
+                          }
+                        }}
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    </div>
+                  )
                 ) : (
                   <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid #E2E8F0' }}>
                     <div style={{

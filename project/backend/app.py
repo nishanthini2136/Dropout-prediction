@@ -1,5 +1,7 @@
 from flask import Flask, jsonify
 from flask_cors import CORS
+from dotenv import load_dotenv
+load_dotenv(override=True)
 from config.database import db
 
 # Import blueprints
