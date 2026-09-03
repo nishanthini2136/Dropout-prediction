@@ -28,6 +28,8 @@ const CourseCreator = () => {
     practice_exercises_pdf: null
   });
 
+  const [courseVideoUrl, setCourseVideoUrl] = useState('');
+
   useEffect(() => {
     if (id) {
       axios.get(`/api/courses/${id}`)
@@ -50,6 +52,11 @@ const CourseCreator = () => {
               practice_exercises_pdf: c.practice_exercises_pdf || null
             }));
 
+            const defVideo = c.course_video_url || c.youtube_url || 
+              (c.modules?.[0]?.resources?.[0]?.url) || 
+              (c.modules?.[0]?.lessons?.[0]?.url) || '';
+            setCourseVideoUrl(defVideo);
+
             if (Array.isArray(c.modules)) {
               const normalized = c.modules.map((m, idx) => {
                 const rawRes = Array.isArray(m.resources) ? m.resources : (Array.isArray(m.lessons) ? m.lessons : []);
@@ -57,7 +64,7 @@ const CourseCreator = () => {
                   id: r.id || (Date.now() + rIdx),
                   type: r.type || 'video',
                   title: r.title || '',
-                  url: r.url || '',
+                  url: r.url || defVideo || '',
                   duration: r.duration || '',
                   ...r
                 }));
@@ -151,12 +158,65 @@ const CourseCreator = () => {
     }
   };
 
+  const applyCourseVideoToAllModules = (customUrl = null) => {
+    const targetUrl = (customUrl !== null ? customUrl : courseVideoUrl || '').trim();
+    if (!targetUrl) {
+      alert('Please enter a YouTube video URL to apply to all modules.');
+      return;
+    }
+    setModules(prev => prev.map(mod => {
+      const existingRes = (Array.isArray(mod.resources) && mod.resources.length > 0)
+        ? mod.resources
+        : [{ id: Date.now(), type: 'video', title: mod.title || 'Video Lecture', duration: '15 min' }];
+
+      const updatedRes = existingRes.map(r => ({
+        ...r,
+        type: 'video',
+        url: targetUrl
+      }));
+
+      const existingLes = (Array.isArray(mod.lessons) && mod.lessons.length > 0)
+        ? mod.lessons
+        : updatedRes;
+
+      const updatedLes = existingLes.map(l => ({
+        ...l,
+        type: 'video',
+        url: targetUrl
+      }));
+
+      return {
+        ...mod,
+        resources: updatedRes,
+        lessons: updatedLes
+      };
+    }));
+    setToastMessage('✓ Configured YouTube video URL applied to all modules in this course!');
+  };
+
   const addModule = () => {
     const newModule = {
       id: Date.now(),
       title: '',
       description: '',
-      resources: [],
+      resources: [
+        {
+          id: Date.now(),
+          type: 'video',
+          title: 'Module Lecture',
+          url: courseVideoUrl || '',
+          duration: '15 min'
+        }
+      ],
+      lessons: [
+        {
+          id: Date.now(),
+          type: 'video',
+          title: 'Module Lecture',
+          url: courseVideoUrl || '',
+          duration: '15 min'
+        }
+      ],
       quizzes: [],
       assignments: []
     };
@@ -564,6 +624,8 @@ const CourseCreator = () => {
         };
       });
 
+      formData.append('course_video_url', courseVideoUrl);
+      formData.append('youtube_url', courseVideoUrl);
       formData.append('modules', JSON.stringify(cleanModulesDraft));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
       formData.append('learningConfig', JSON.stringify(learningConfig));
@@ -674,6 +736,8 @@ const CourseCreator = () => {
         };
       });
 
+      formData.append('course_video_url', courseVideoUrl);
+      formData.append('youtube_url', courseVideoUrl);
       formData.append('modules', JSON.stringify(cleanModulesPublish));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
       formData.append('learningConfig', JSON.stringify(learningConfig));
@@ -1081,6 +1145,52 @@ const CourseCreator = () => {
 
                   {section.id === 'modules' && (
                     <div style={{ paddingTop: '24px' }}>
+                      {/* Course-Wide YouTube Channel Video Source Configuration */}
+                      <div style={{
+                        background: '#F0FDF4',
+                        border: '1px solid #86EFAC',
+                        borderRadius: '12px',
+                        padding: '16px 20px',
+                        marginBottom: '24px'
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '10px' }}>
+                          <div>
+                            <div style={{ fontSize: '14px', fontWeight: '700', color: '#166534', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span>📺</span> Course YouTube Channel Video Source
+                            </div>
+                            <p style={{ fontSize: '12px', color: '#15803D', margin: '4px 0 0 0' }}>
+                              All modules within this course use this configured YouTube video while retaining individual module titles, quizzes, and student progress tracking.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-gold btn-sm"
+                            onClick={() => applyCourseVideoToAllModules()}
+                            style={{ fontSize: '12px', fontWeight: '600', padding: '6px 14px' }}
+                          >
+                            ⚡ Apply to All Modules
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={courseVideoUrl}
+                            onChange={(e) => setCourseVideoUrl(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            placeholder="https://www.youtube.com/watch?v=..."
+                            style={{
+                              flex: 1,
+                              padding: '8px 12px',
+                              border: '1px solid #BBF7D0',
+                              borderRadius: '6px',
+                              fontSize: '13px',
+                              background: '#FFFFFF',
+                              fontFamily: 'Poppins, sans-serif'
+                            }}
+                          />
+                        </div>
+                      </div>
+
                       {modules.map((module, moduleIndex) => (
                         <div key={module.id} style={{
                           background: '#F8FAFC',

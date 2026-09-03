@@ -10,17 +10,47 @@ from werkzeug.utils import secure_filename
 courses_bp = Blueprint('courses', __name__)
 
 def enrich_course_module_durations(course):
-    """Detect and ensure exact durations directly from local uploaded video files for all modules/lessons, and ensure complete module fields."""
+    """Detect and ensure exact durations directly from local uploaded video files for all modules/lessons, ensure complete module fields, and propagate the course-wide YouTube video source across all modules."""
     if not course or not isinstance(course, dict):
         return course
     upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
     from utils.media_utils import get_file_duration_formatted
     modules = course.get('modules', [])
+
+    # Find or use the course-level configured YouTube channel video source
+    course_video = course.get('course_video_url') or course.get('youtube_url')
+    if not course_video and isinstance(modules, list):
+        for mod in modules:
+            if isinstance(mod, dict):
+                candidates = (mod.get('lessons') if isinstance(mod.get('lessons'), list) else []) + \
+                             (mod.get('resources') if isinstance(mod.get('resources'), list) else [])
+                for item in candidates:
+                    if isinstance(item, dict) and item.get('url') and ('youtube.com' in item['url'] or 'youtu.be' in item['url']):
+                        course_video = item['url']
+                        break
+            if course_video:
+                break
+
+    if course_video:
+        course['course_video_url'] = course_video
+        course['youtube_url'] = course_video
+
     if isinstance(modules, list):
         for mod in modules:
             if not isinstance(mod, dict):
                 continue
             raw_lessons = mod.get('lessons') if isinstance(mod.get('lessons'), list) else (mod.get('resources') if isinstance(mod.get('resources'), list) else [])
+
+            # Ensure all video lessons in this module use the same configured YouTube video source
+            if course_video:
+                for lesson in raw_lessons:
+                    if isinstance(lesson, dict):
+                        # Apply to video lessons or lessons without a specific uploaded file
+                        url = lesson.get('url', '')
+                        if not url.startswith('/static/uploads/'):
+                            lesson['url'] = course_video
+                            lesson['type'] = 'video'
+
             mod['resources'] = raw_lessons
             mod['lessons'] = raw_lessons
             if not isinstance(mod.get('quizzes'), list):

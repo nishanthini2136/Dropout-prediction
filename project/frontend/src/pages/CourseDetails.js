@@ -1623,10 +1623,10 @@ const CourseDetails = () => {
               </div>
               <div style={{ padding: '24px' }}>
                 {activeLesson.type === 'video' ? (
-                  getYouTubeVideoId(activeLesson.url) ? (
+                  getYouTubeVideoId(activeLesson.url || course?.course_video_url || course?.youtube_url) ? (
                     <YouTubePlayer
-                      key={`yt-${activeModule?.id || activeModule?._id}-${activeLesson?.id || activeLesson?.title}-${getYouTubeVideoId(activeLesson.url)}`}
-                      videoId={getYouTubeVideoId(activeLesson.url)}
+                      key={`yt-${activeModule?.id || activeModule?._id}-${activeLesson?.id || activeLesson?.title}-${getYouTubeVideoId(activeLesson.url || course?.course_video_url || course?.youtube_url)}`}
+                      videoId={getYouTubeVideoId(activeLesson.url || course?.course_video_url || course?.youtube_url)}
                       onEnded={handleVideoComplete}
                     />
                   ) : (
