@@ -50,6 +50,10 @@ def enroll_in_course():
         
         enrollment_id = enrollment_model.enroll_student(enrollment_data)
         
+        # Invalidate recommendation cache for student
+        from services.recommendation_engine import RecommendationEngine
+        RecommendationEngine.invalidate_cache(request.current_user_id)
+        
         # Notify stats listeners of enrollment
         stats_notifier.notify()
         
@@ -67,27 +71,55 @@ def get_my_enrollments():
     try:
         enrollment_model = Enrollment()
         course_model = Course()
-        from models.prediction import PredictionModel
-        from services.risk_engine import RiskEngine
+        from config.database import db
         
-        enrollments = enrollment_model.get_student_enrollments(request.current_user_id)
+        user_id = request.current_user_id
+        enrollments = enrollment_model.get_student_enrollments(user_id)
+        if not enrollments:
+            return jsonify([]), 200
+
+        # Batch query 1: Fetch all enrolled courses in 1 query
+        course_ids = [e['course_id'] for e in enrollments if e.get('course_id')]
+        c_matches = []
+        for cid in course_ids:
+            if ObjectId.is_valid(str(cid)):
+                c_matches.append(ObjectId(str(cid)))
+            c_matches.append(str(cid))
+
+        courses = list(course_model.collection.find({'_id': {'$in': c_matches}}))
+        courses_map = {}
+        for c in courses:
+            cid_str = str(c['_id'])
+            c['_id'] = cid_str
+            courses_map[cid_str] = c
+
+        # Batch query 2: Fetch all predictions for this student in 1 query
+        s_match = {'$in': [ObjectId(user_id), str(user_id)]} if ObjectId.is_valid(str(user_id)) else str(user_id)
+        predictions = list(db.get_db()['predictions'].find({'student_id': s_match}))
+        preds_map = {str(p.get('course_id')): p for p in predictions if p.get('course_id')}
+
+        # Get fallback default prediction if any
+        default_pred = next((p for p in predictions if not p.get('course_id')), None)
         
         my_courses = []
         for enrollment in enrollments:
-            course = course_model.find_by_id(enrollment['course_id'])
+            c_id_raw = enrollment.get('course_id')
+            c_id_str = str(c_id_raw)
+            course = courses_map.get(c_id_str)
             if course:
-                c_id_str = str(course['_id'])
-                course['_id'] = c_id_str
                 enrollment['_id'] = str(enrollment['_id'])
                 enrollment['course_id'] = course
-                enrollment['student_id'] = str(enrollment['student_id'])
+                enrollment['student_id'] = str(enrollment.get('student_id', user_id))
                 
-                # Fetch per-course prediction
-                pred = PredictionModel().get_prediction(request.current_user_id, c_id_str)
-                if not pred:
-                    pred = RiskEngine().predict_risk(request.current_user_id, c_id_str)
-                
-                if pred:
+                # Check for 100% completed course
+                is_completed = enrollment.get('progress', 0) >= 100 or enrollment.get('status') == 'completed'
+                enrollment['is_completed'] = is_completed
+
+                pred = preds_map.get(c_id_str) or default_pred
+                if is_completed:
+                    enrollment['risk_badge'] = 'Low'
+                    enrollment['risk_score'] = 0.0
+                elif pred:
                     enrollment['risk_badge'] = pred.get('risk_level', 'Medium')
                     score_val = pred.get('risk_score')
                     if score_val is None:
@@ -209,6 +241,8 @@ def unenroll(enrollment_id):
         deleted = enrollment_model.unenroll_student(enrollment_id)
         
         if deleted:
+            from services.recommendation_engine import RecommendationEngine
+            RecommendationEngine.invalidate_cache(request.current_user_id)
             stats_notifier.notify()
             return jsonify({'message': 'Unenrolled successfully'}), 200
         else:

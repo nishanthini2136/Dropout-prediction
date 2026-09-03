@@ -10,7 +10,7 @@ from werkzeug.utils import secure_filename
 courses_bp = Blueprint('courses', __name__)
 
 def enrich_course_module_durations(course):
-    """Detect and ensure exact durations directly from local uploaded video files for all modules/lessons."""
+    """Detect and ensure exact durations directly from local uploaded video files for all modules/lessons, and ensure complete module fields."""
     if not course or not isinstance(course, dict):
         return course
     upload_folder = os.path.join(current_app.root_path, 'static', 'uploads')
@@ -20,8 +20,15 @@ def enrich_course_module_durations(course):
         for mod in modules:
             if not isinstance(mod, dict):
                 continue
-            lessons = mod.get('lessons') or mod.get('resources') or []
-            for lesson in lessons:
+            raw_lessons = mod.get('lessons') if isinstance(mod.get('lessons'), list) else (mod.get('resources') if isinstance(mod.get('resources'), list) else [])
+            mod['resources'] = raw_lessons
+            mod['lessons'] = raw_lessons
+            if not isinstance(mod.get('quizzes'), list):
+                mod['quizzes'] = []
+            if not isinstance(mod.get('assignments'), list):
+                mod['assignments'] = []
+
+            for lesson in raw_lessons:
                 if not isinstance(lesson, dict):
                     continue
                 url = lesson.get('url', '')
@@ -51,13 +58,20 @@ def get_all_courses():
             courses = course_model.search_courses(search_term, category, difficulty)
         else:
             courses = course_model.get_all_courses(active_only=True)
+            
+        # Single aggregation to get all course enrollment counts in 1 query
+        pipeline = [
+            {'$group': {'_id': '$course_id', 'count': {'$sum': 1}}}
+        ]
+        counts_raw = list(enrollment_model.collection.aggregate(pipeline))
+        enrollment_counts = {str(item['_id']): item['count'] for item in counts_raw if item.get('_id')}
         
         # Convert ObjectId to string for JSON serialization & calculate seats left dynamically
         for course in courses:
             c_id = str(course['_id'])
             course['_id'] = c_id
             capacity = int(course.get('capacity', 30))
-            enrolled_count = enrollment_model.collection.count_documents({'course_id': ObjectId(c_id)})
+            enrolled_count = enrollment_counts.get(c_id, 0)
             course['capacity'] = capacity
             course['enrolled_count'] = enrolled_count
             course['seats_left'] = max(0, capacity - enrolled_count)

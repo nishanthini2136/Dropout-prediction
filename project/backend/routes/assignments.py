@@ -9,9 +9,17 @@ assignments_bp = Blueprint('assignments', __name__, url_prefix='/api/assignments
 @token_required
 def get_course_assignments(course_id):
     try:
+        from datetime import datetime
         assignments = AssignmentModel().get_assignments_by_course(course_id)
         for a in assignments:
             a['_id'] = str(a['_id'])
+            a['course_id'] = str(a.get('course_id', ''))
+            if isinstance(a.get('due_date'), datetime):
+                a['due_date'] = a['due_date'].isoformat()
+            if isinstance(a.get('created_at'), datetime):
+                a['created_at'] = a['created_at'].isoformat()
+            if isinstance(a.get('updated_at'), datetime):
+                a['updated_at'] = a['updated_at'].isoformat()
         return jsonify(assignments), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -61,9 +69,36 @@ def submit_assignment(assignment_id):
 @admin_required
 def get_submissions(assignment_id):
     try:
+        from datetime import datetime
+        from config.database import db
+        from bson import ObjectId
+        
         submissions = SubmissionModel().get_submissions_by_assignment(assignment_id)
+        
+        user_ids = []
+        for s in submissions:
+            uid = s.get('student_id') or s.get('user_id')
+            if uid:
+                if ObjectId.is_valid(str(uid)):
+                    user_ids.append(ObjectId(str(uid)))
+                user_ids.append(str(uid))
+                
+        users = list(db.get_db()['users'].find({'_id': {'$in': user_ids}}, {'name': 1, 'email': 1}))
+        users_map = {str(u['_id']): u for u in users}
+        
         for s in submissions:
             s['_id'] = str(s['_id'])
+            s['assignment_id'] = str(s.get('assignment_id', ''))
+            s['course_id'] = str(s.get('course_id', ''))
+            uid = str(s.get('student_id') or s.get('user_id') or '')
+            s['student_id'] = uid
+            user_info = users_map.get(uid, {})
+            s['student_name'] = user_info.get('name', 'Student')
+            s['student_email'] = user_info.get('email', '')
+            if isinstance(s.get('submitted_at'), datetime):
+                s['submitted_at'] = s['submitted_at'].isoformat()
+            if isinstance(s.get('graded_at'), datetime):
+                s['graded_at'] = s['graded_at'].isoformat()
         return jsonify(submissions), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

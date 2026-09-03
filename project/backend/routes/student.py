@@ -281,9 +281,7 @@ def handle_roadmap(week_num):
     roadmap_model = RoadmapModel()
     
     if request.method == 'GET':
-        roadmap = roadmap_model.get_roadmap(user_id, week_num, course_id)
-        if not roadmap:
-            roadmap = roadmap_model.generate_personalized_roadmap(user_id, course_id, week_num)
+        roadmap = roadmap_model.generate_personalized_roadmap(user_id, course_id, week_num)
         if roadmap:
             return jsonify({'roadmap': _serialize(roadmap)}), 200
         return jsonify({'roadmap': None}), 200
@@ -336,31 +334,29 @@ def get_dashboard_stats():
         from services.risk_engine import RiskEngine
         from models.enrollment import Enrollment
         
-        enrollments = Enrollment().get_student_enrollments(user_id)
-        predictions_map = {}
         pred_model = PredictionModel()
+        predictions_map = {}
         
+        # 1 Batch query for all student predictions
+        preds = pred_model.get_prediction(user_id)
+        if isinstance(preds, list) and len(preds) > 0:
+            for p in preds:
+                p_ser = _serialize(p)
+                if p.get('course_id'):
+                    predictions_map[str(p['course_id'])] = p_ser
+                else:
+                    predictions_map['default'] = p_ser
+        elif isinstance(preds, dict):
+            predictions_map['default'] = _serialize(preds)
+
+        # Check enrollments only if needed for missing courses
+        enrollments = Enrollment().get_student_enrollments(user_id)
         for e in enrollments:
             c_id = str(e['course_id'])
-            # Fast DB lookup first
-            pred = pred_model.get_prediction(user_id, c_id)
-            if not pred:
-                # Compute only if missing
+            if c_id not in predictions_map:
                 pred = RiskEngine().predict_risk(user_id, c_id)
-            if pred:
-                predictions_map[c_id] = _serialize(pred)
-
-        if not predictions_map:
-            preds = pred_model.get_prediction(user_id)
-            if isinstance(preds, list) and len(preds) > 0:
-                for p in preds:
-                    p_ser = _serialize(p)
-                    if p.get('course_id'):
-                        predictions_map[str(p['course_id'])] = p_ser
-                    else:
-                        predictions_map['default'] = p_ser
-            elif isinstance(preds, dict):
-                predictions_map['default'] = _serialize(preds)
+                if pred:
+                    predictions_map[c_id] = _serialize(pred)
 
         return jsonify({
             'predictions': predictions_map

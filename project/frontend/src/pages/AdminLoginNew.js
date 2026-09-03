@@ -26,7 +26,7 @@ const AdminLogin = () => {
       await login(formData.email, formData.password, 'admin');
       navigate('/admin/dashboard');
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      setError(err.message || 'Invalid credentials. Please try again.');
     }
   };
 

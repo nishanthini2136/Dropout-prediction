@@ -36,7 +36,7 @@ class User:
         return result.modified_count > 0
     
     def get_all_students(self):
-        return list(self.collection.find({'role': 'student'}))
+        return list(self.collection.find({'role': 'student'}, {'password': 0}))
     
     def get_student_count(self):
         return self.collection.count_documents({'role': 'student'})

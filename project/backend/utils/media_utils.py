@@ -107,15 +107,28 @@ def format_video_duration(seconds):
     else:
         return f"{secs} sec"
 
+_DURATION_CACHE = {}
+
 def get_file_duration_formatted(filepath):
-    """Detect and format exact duration of a local video file."""
+    """Detect and format exact duration of a local video file with mtime caching."""
     if not os.path.exists(filepath):
         return None
     
     ext = os.path.splitext(filepath)[1].lower()
     if ext in ('.mp4', '.m4v', '.mov'):
-        duration_sec = parse_mp4_duration(filepath)
-        if duration_sec is not None:
-            return format_video_duration(duration_sec)
+        try:
+            mtime = os.path.getmtime(filepath)
+            cached = _DURATION_CACHE.get(filepath)
+            if cached and cached[0] == mtime:
+                return cached[1]
+            
+            duration_sec = parse_mp4_duration(filepath)
+            if duration_sec is not None:
+                formatted = format_video_duration(duration_sec)
+                _DURATION_CACHE[filepath] = (mtime, formatted)
+                return formatted
+        except Exception as e:
+            print(f"[media_utils] Duration error for {filepath}: {e}")
     
     return None
+

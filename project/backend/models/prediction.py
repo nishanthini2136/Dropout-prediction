@@ -7,7 +7,7 @@ class PredictionModel:
         self.collection = db.get_collection('predictions')
         self.history_collection = db.get_collection('prediction_history')
 
-    def create_or_update_prediction(self, student_id: str, course_id: str, risk_level: str, risk_probability: float, model_version: str, features: dict, weekly_forecast: list, forecast_type: str = "placeholder"):
+    def create_or_update_prediction(self, student_id: str, course_id: str, risk_level: str, risk_probability: float, model_version: str, features: dict, weekly_forecast: list, forecast_type: str = "placeholder", forecast_metadata: dict = None):
         s_id = ObjectId(student_id) if ObjectId.is_valid(student_id) else str(student_id)
         c_id = ObjectId(course_id) if course_id and ObjectId.is_valid(course_id) else str(course_id) if course_id else None
         
@@ -20,6 +20,7 @@ class PredictionModel:
             'features': features,
             'weekly_forecast': weekly_forecast,
             'forecast_type': forecast_type,
+            'forecast_metadata': forecast_metadata or {},
             'updated_at': datetime.utcnow()
         }
         

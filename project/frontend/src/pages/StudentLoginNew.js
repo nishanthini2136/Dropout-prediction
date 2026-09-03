@@ -26,7 +26,7 @@ const StudentLogin = () => {
       await login(formData.email, formData.password, 'student');
       navigate('/student/dashboard');
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      setError(err.message || 'Invalid credentials. Please try again.');
     }
   };
 

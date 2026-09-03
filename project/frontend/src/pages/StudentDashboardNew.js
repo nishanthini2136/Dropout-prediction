@@ -26,11 +26,17 @@ const StudentDashboard = () => {
   const fallbackImage = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="300" viewBox="0 0 600 300"><rect width="100%" height="100%" fill="#1e293b"/><text x="50%" y="50%" fill="#94a3b8" font-family="sans-serif" font-size="20" text-anchor="middle" dy=".3em">Course Learning Material</text></svg>')}`;
 
   useEffect(() => {
-    fetchCourses();
-    fetchEnrolledCourses();
-    fetchRecommendations();
-    fetchDashboardStats();
+    loadDashboardData();
   }, []);
+
+  const loadDashboardData = async () => {
+    await Promise.allSettled([
+      fetchCourses(),
+      fetchEnrolledCourses(),
+      fetchRecommendations(),
+      fetchDashboardStats()
+    ]);
+  };
 
   useEffect(() => {
     if (enrolledCourses.length > 0 && !selectedCourseId) {
@@ -98,10 +104,7 @@ const StudentDashboard = () => {
     try {
       await axios.post('/api/enrollments', { course_id: courseId }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
       setToastMessage('Enrolled successfully');
-      fetchCourses();
-      fetchEnrolledCourses();
-      fetchRecommendations();
-      fetchDashboardStats();
+      loadDashboardData();
     } catch (error) {
       setToastMessage('Error enrolling course');
     }
@@ -112,10 +115,7 @@ const StudentDashboard = () => {
       try {
         await axios.delete(`/api/enrollments/${enrollmentId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
         setToastMessage('Course dropped successfully');
-        fetchCourses();
-        fetchEnrolledCourses();
-        fetchRecommendations();
-        fetchDashboardStats();
+        loadDashboardData();
       } catch (error) {
         setToastMessage('Error dropping course');
       }
@@ -209,28 +209,52 @@ const StudentDashboard = () => {
                 <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer', position: 'relative' }}>
                   <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px', position: 'relative' }}>
                     
-                    {/* Enrolled Badge */}
-                    <div className="badge-enrolled" style={{ top: '10px', left: '10px', right: 'auto' }}>Enrolled</div>
-
-                    {/* Per-Course Risk Badge */}
-                    {enrollment.risk_badge && (
-                      <span style={{ 
-                        position: 'absolute', 
+                    {/* Status Badge (Left: Enrolled vs Completed) */}
+                    <div 
+                      className="badge-enrolled" 
+                      style={{ 
                         top: '10px', 
-                        right: '10px', 
-                        zIndex: 10,
-                        background: enrollment.risk_badge === 'High' ? '#fee2e2' : enrollment.risk_badge === 'Medium' ? '#fef3c7' : '#dcfce3', 
-                        color: enrollment.risk_badge === 'High' ? '#ef4444' : enrollment.risk_badge === 'Medium' ? '#b45309' : '#047857',
-                        padding: '4px 10px', 
-                        borderRadius: '6px', 
-                        fontWeight: 'bold', 
-                        fontSize: '11px',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-                        border: '1px solid rgba(255, 255, 255, 0.4)'
-                      }}>
-                        Risk: {enrollment.risk_badge} ({enrollment.risk_score?.toFixed(1)}%)
-                      </span>
-                    )}
+                        left: '10px', 
+                        right: 'auto',
+                        background: (enrollment.progress >= 100 || enrollment.is_completed) 
+                          ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' 
+                          : undefined
+                      }}
+                    >
+                      {(enrollment.progress >= 100 || enrollment.is_completed) ? 'Completed 🎉' : 'Enrolled'}
+                    </div>
+
+                    {/* Risk Badge (Right) */}
+                    <span style={{ 
+                      position: 'absolute', 
+                      top: '10px', 
+                      right: '10px', 
+                      zIndex: 10,
+                      background: (enrollment.progress >= 100 || enrollment.is_completed)
+                        ? '#dcfce7'
+                        : enrollment.risk_badge === 'High' 
+                          ? '#fee2e2' 
+                          : enrollment.risk_badge === 'Medium' 
+                            ? '#fef3c7' 
+                            : '#dcfce7', 
+                      color: (enrollment.progress >= 100 || enrollment.is_completed)
+                        ? '#15803d'
+                        : enrollment.risk_badge === 'High' 
+                          ? '#ef4444' 
+                          : enrollment.risk_badge === 'Medium' 
+                            ? '#b45309' 
+                            : '#047857',
+                      padding: '4px 10px', 
+                      borderRadius: '6px', 
+                      fontWeight: 'bold', 
+                      fontSize: '11px',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                      border: '1px solid rgba(255, 255, 255, 0.4)'
+                    }}>
+                      {(enrollment.progress >= 100 || enrollment.is_completed)
+                        ? '0% Risk'
+                        : `Risk: ${enrollment.risk_badge} (${enrollment.risk_score?.toFixed(1)}%)`}
+                    </span>
 
                     <img
                       src={enrollment.course_id.thumbnail ? (enrollment.course_id.thumbnail.startsWith('http') ? enrollment.course_id.thumbnail : `http://localhost:5000${enrollment.course_id.thumbnail}`) : fallbackImage}
@@ -304,15 +328,11 @@ const StudentDashboard = () => {
             {currentPrediction ? (
               <>
                 <Line data={chartData} options={chartOptions} />
-                {currentPrediction.forecast_type === 'trend_based' ? (
-                  <p style={{ fontSize: '11px', color: '#10b981', marginTop: '8px', fontWeight: '600' }}>
-                    📈 Trend-based projection (from real activity history)
-                  </p>
-                ) : (
-                  <p style={{ fontSize: '11px', color: '#6b7280', marginTop: '8px', fontStyle: 'italic' }}>
-                    ℹ️ Baseline forecast — trend projection will refine as activity history accumulates.
-                  </p>
-                )}
+                <p style={{ fontSize: '11px', color: '#047857', marginTop: '8px', fontWeight: '600', lineHeight: '1.4' }}>
+                  {enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.progress >= 100 
+                    ? '🎉 Course Completed — 0% Dropout Risk achieved!' 
+                    : '📈 CatBoost 4-Week Forecast (evaluated on behavioral velocity & projected feature vectors)'}
+                </p>
               </>
             ) : (
               <p style={{ color: '#6b7280', fontSize: '14px' }}>No forecast data available for selected course.</p>
@@ -321,7 +341,19 @@ const StudentDashboard = () => {
 
           {/* Roadmap Widget */}
           <div className="widget" style={{ background: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-            <h3 style={{ marginBottom: '15px', fontSize: '16px', color: '#0f172a', fontWeight: '700' }}>Weekly Roadmap (Week 1)</h3>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '15px' }}>
+              <h3 style={{ margin: 0, fontSize: '16px', color: '#0f172a', fontWeight: '700' }}>Weekly Roadmap</h3>
+              <span style={{ 
+                fontSize: '11px', 
+                fontWeight: '700', 
+                padding: '3px 8px', 
+                borderRadius: '12px',
+                background: (enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.progress >= 100 || enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.is_completed) ? '#dcfce7' : '#e0e7ff',
+                color: (enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.progress >= 100 || enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.is_completed) ? '#15803d' : '#4338ca'
+              }}>
+                {(enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.progress >= 100 || enrolledCourses.find(e => e.course_id._id === selectedCourseId)?.is_completed) ? 'Completed 🎉' : 'Week 1'}
+              </span>
+            </div>
             {roadmap && roadmap.tasks && roadmap.tasks.length > 0 ? (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
                 {roadmap.tasks.map((task, idx) => (

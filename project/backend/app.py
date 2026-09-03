@@ -24,6 +24,13 @@ CORS(app)
 # Connect to MongoDB
 db.connect()
 
+# Preload ML models at application startup to eliminate cold-request latency
+try:
+    from services.recommendation_engine import RecommendationEngine
+    RecommendationEngine.preload()
+except Exception as e:
+    print(f"[Startup] Note on ML model preload: {e}")
+
 # Register blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(courses_bp)

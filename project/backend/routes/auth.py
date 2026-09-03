@@ -75,26 +75,18 @@ def login():
             
         user_id_str = str(user['_id'])
             
-        # Log engagement and trigger risk engine for students
+        # Log login engagement in non-blocking manner for students
         if user.get('role') == 'student':
             from models.engagement import EngagementModel
-            from services.risk_engine import RiskEngine
-            
-            EngagementModel().log_event(
-                student_id=user_id_str,
-                course_id=None,
-                module_id=None,
-                event_type='login'
-            )
-            
             try:
-                risk_engine = RiskEngine()
-                risk_engine.predict_risk(user_id_str)
+                EngagementModel().log_event(
+                    student_id=user_id_str,
+                    course_id=None,
+                    module_id=None,
+                    event_type='login'
+                )
             except Exception as e:
-                print(f"Failed to trigger risk engine on login: {e}")
-                
-        # Re-fetch user in case risk_badge was updated
-        user = user_model.find_by_id(user_id_str)
+                print(f"[Auth] Failed to log login event: {e}")
         
         # Generate token
         token = AuthUtils.generate_token(user['_id'], user['role'])
@@ -107,8 +99,8 @@ def login():
                 'name': user.get('name'),
                 'email': user.get('email'),
                 'role': user.get('role'),
-                'risk_badge': user.get('risk_badge'),
-                'risk_score': user.get('risk_score')
+                'risk_badge': user.get('risk_badge', 'Low'),
+                'risk_score': user.get('risk_score', 0.0)
             }
         }), 200
         

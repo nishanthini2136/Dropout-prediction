@@ -25,6 +25,5 @@ class AssignmentModel:
         return self.collection.find_one({'_id': ObjectId(assignment_id) if ObjectId.is_valid(assignment_id) else assignment_id})
 
     def get_assignments_by_course(self, course_id: str):
-        return list(self.collection.find({
-            'course_id': ObjectId(course_id) if ObjectId.is_valid(course_id) else str(course_id)
-        }))
+        c_match = {'$in': [ObjectId(course_id), str(course_id)]} if ObjectId.is_valid(str(course_id)) else str(course_id)
+        return list(self.collection.find({'course_id': c_match}))

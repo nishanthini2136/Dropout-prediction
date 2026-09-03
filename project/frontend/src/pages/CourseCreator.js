@@ -30,7 +30,8 @@ const CourseCreator = () => {
 
   useEffect(() => {
     if (id) {
-      axios.get(`http://localhost:5000/api/courses/${id}`)
+      axios.get(`/api/courses/${id}`)
+        .catch(() => axios.get(`http://localhost:5000/api/courses/${id}`))
         .then(res => {
           const c = res.data.course;
           if (c) {
@@ -48,10 +49,61 @@ const CourseCreator = () => {
               reference_materials_pdf: c.reference_materials_pdf || null,
               practice_exercises_pdf: c.practice_exercises_pdf || null
             }));
-            if (c.modules) setModules(c.modules);
-            if (c.completionCriteria) setCompletionCriteria(c.completionCriteria);
-            if (c.learningConfig) setLearningConfig(c.learningConfig);
-            if (c.discussionTopics) setDiscussionTopics(c.discussionTopics);
+
+            if (Array.isArray(c.modules)) {
+              const normalized = c.modules.map((m, idx) => {
+                const rawRes = Array.isArray(m.resources) ? m.resources : (Array.isArray(m.lessons) ? m.lessons : []);
+                const resources = rawRes.map((r, rIdx) => ({
+                  id: r.id || (Date.now() + rIdx),
+                  type: r.type || 'video',
+                  title: r.title || '',
+                  url: r.url || '',
+                  duration: r.duration || '',
+                  ...r
+                }));
+                const rawQuizzes = Array.isArray(m.quizzes) ? m.quizzes : [];
+                const quizzes = rawQuizzes.map((q, qIdx) => ({
+                  id: q.id || (Date.now() + qIdx),
+                  title: q.title || '',
+                  timeLimit: q.timeLimit || 30,
+                  passingMarks: q.passingMarks || 70,
+                  questions: (Array.isArray(q.questions) ? q.questions : []).map((qst, qstIdx) => ({
+                    id: qst.id || (Date.now() + qstIdx),
+                    marks: qst.marks || 1,
+                    question: qst.question || '',
+                    correctAnswer: qst.correctAnswer !== undefined ? qst.correctAnswer : 0,
+                    options: Array.isArray(qst.options) ? qst.options : ['', '', '', ''],
+                    ...qst
+                  })),
+                  ...q
+                }));
+                const rawAssignments = Array.isArray(m.assignments) ? m.assignments : [];
+                const assignments = rawAssignments.map((a, aIdx) => ({
+                  id: a.id || (Date.now() + aIdx),
+                  title: a.title || '',
+                  description: a.description || '',
+                  dueDate: a.dueDate || '',
+                  totalMarks: a.totalMarks || 100,
+                  passingMarks: a.passingMarks || 50,
+                  ...a
+                }));
+                return {
+                  id: m.id || (Date.now() + idx),
+                  title: m.title || '',
+                  description: m.description || '',
+                  ...m,
+                  resources,
+                  lessons: resources,
+                  quizzes,
+                  assignments
+                };
+              });
+              setModules(normalized.length > 0 ? normalized : [{ id: 1, title: '', description: '', resources: [], quizzes: [], assignments: [] }]);
+            }
+
+            if (c.completionCriteria) setCompletionCriteria(prev => ({ ...prev, ...c.completionCriteria }));
+            if (c.learningConfig) setLearningConfig(prev => ({ ...prev, ...c.learningConfig }));
+            if (Array.isArray(c.discussionTopics)) setDiscussionTopics(c.discussionTopics);
           }
         })
         .catch(err => console.error('Error fetching course for edit:', err));
@@ -138,7 +190,7 @@ const CourseCreator = () => {
     };
     setModules(prev => prev.map(module =>
       module.id === moduleId
-        ? { ...module, resources: [...module.resources, newResource] }
+        ? { ...module, resources: [...(module.resources || []), newResource] }
         : module
     ));
   };
@@ -148,7 +200,7 @@ const CourseCreator = () => {
       module.id === moduleId
         ? {
             ...module,
-            resources: module.resources.map(resource =>
+            resources: (module.resources || []).map(resource =>
               resource.id === resourceId ? { ...resource, [field]: value } : resource
             )
           }
@@ -191,7 +243,7 @@ const CourseCreator = () => {
         if (mod.id !== moduleId) return mod;
         return {
           ...mod,
-          resources: mod.resources.map(res => {
+          resources: (mod.resources || []).map(res => {
             if (res.id !== resourceId) return res;
             return {
               ...res,
@@ -214,7 +266,7 @@ const CourseCreator = () => {
         if (mod.id !== moduleId) return mod;
         return {
           ...mod,
-          resources: mod.resources.map(res => {
+          resources: (mod.resources || []).map(res => {
             if (res.id !== resourceId) return res;
             return {
               ...res,
@@ -260,7 +312,7 @@ const CourseCreator = () => {
   const deleteResource = (moduleId, resourceId) => {
     setModules(prev => prev.map(module =>
       module.id === moduleId
-        ? { ...module, resources: module.resources.filter(r => r.id !== resourceId) }
+        ? { ...module, resources: (module.resources || []).filter(r => r.id !== resourceId) }
         : module
     ));
   };
@@ -283,7 +335,7 @@ const CourseCreator = () => {
     };
     setModules(prev => prev.map(module =>
       module.id === moduleId
-        ? { ...module, quizzes: [...module.quizzes, newQuiz] }
+        ? { ...module, quizzes: [...(module.quizzes || []), newQuiz] }
         : module
     ));
   };
@@ -293,7 +345,7 @@ const CourseCreator = () => {
       module.id === moduleId
         ? {
             ...module,
-            quizzes: module.quizzes.map(quiz =>
+            quizzes: (module.quizzes || []).map(quiz =>
               quiz.id === quizId ? { ...quiz, [field]: value } : quiz
             )
           }
@@ -318,9 +370,9 @@ const CourseCreator = () => {
       module.id === moduleId
         ? {
             ...module,
-            quizzes: module.quizzes.map(quiz =>
+            quizzes: (module.quizzes || []).map(quiz =>
               quiz.id === quizId
-                ? { ...quiz, questions: [...quiz.questions, newQuestion] }
+                ? { ...quiz, questions: [...(quiz.questions || []), newQuestion] }
                 : quiz
             )
           }
@@ -333,11 +385,11 @@ const CourseCreator = () => {
       module.id === moduleId
         ? {
             ...module,
-            quizzes: module.quizzes.map(quiz =>
+            quizzes: (module.quizzes || []).map(quiz =>
               quiz.id === quizId
                 ? {
                     ...quiz,
-                    questions: quiz.questions.map(question =>
+                    questions: (quiz.questions || []).map(question =>
                       question.id === questionId ? { ...question, [field]: value } : question
                     )
                   }
@@ -358,15 +410,15 @@ const CourseCreator = () => {
       module.id === moduleId
         ? {
             ...module,
-            quizzes: module.quizzes.map(quiz =>
+            quizzes: (module.quizzes || []).map(quiz =>
               quiz.id === quizId
                 ? {
                     ...quiz,
-                    questions: quiz.questions.map(question =>
+                    questions: (quiz.questions || []).map(question =>
                       question.id === questionId
                         ? {
                             ...question,
-                            options: question.options.map((opt, idx) =>
+                            options: (question.options || []).map((opt, idx) =>
                               idx === optionIndex ? value : opt
                             )
                           }
@@ -383,7 +435,7 @@ const CourseCreator = () => {
   const deleteQuiz = (moduleId, quizId) => {
     setModules(prev => prev.map(module =>
       module.id === moduleId
-        ? { ...module, quizzes: module.quizzes.filter(q => q.id !== quizId) }
+        ? { ...module, quizzes: (module.quizzes || []).filter(q => q.id !== quizId) }
         : module
     ));
   };
@@ -400,7 +452,7 @@ const CourseCreator = () => {
     };
     setModules(prev => prev.map(module =>
       module.id === moduleId
-        ? { ...module, assignments: [...module.assignments, newAssignment] }
+        ? { ...module, assignments: [...(module.assignments || []), newAssignment] }
         : module
     ));
   };
@@ -410,7 +462,7 @@ const CourseCreator = () => {
       module.id === moduleId
         ? {
             ...module,
-            assignments: module.assignments.map(assignment =>
+            assignments: (module.assignments || []).map(assignment =>
               assignment.id === assignmentId ? { ...assignment, [field]: value } : assignment
             )
           }
@@ -426,7 +478,7 @@ const CourseCreator = () => {
   const deleteAssignment = (moduleId, assignmentId) => {
     setModules(prev => prev.map(module =>
       module.id === moduleId
-        ? { ...module, assignments: module.assignments.filter(a => a.id !== assignmentId) }
+        ? { ...module, assignments: (module.assignments || []).filter(a => a.id !== assignmentId) }
         : module
     ));
   };
@@ -492,13 +544,25 @@ const CourseCreator = () => {
       });
 
       // Prepare clean modules array for JSON serialization (omit File objects)
-      const cleanModulesDraft = modules.map(mod => ({
-        ...mod,
-        resources: (mod.resources || []).map(res => {
-          const { videoFile, ...cleanRes } = res;
-          return cleanRes;
-        })
-      }));
+      const cleanModulesDraft = modules.map(mod => {
+        const cleanRes = (mod.resources || []).map(res => {
+          const { videoFile, ...cleanResItem } = res;
+          return cleanResItem;
+        });
+        return {
+          ...mod,
+          resources: cleanRes,
+          lessons: cleanRes,
+          quizzes: (mod.quizzes || []).map(q => ({
+            ...q,
+            questions: (q.questions || []).map(qst => ({
+              ...qst,
+              options: Array.isArray(qst.options) ? qst.options : ['', '', '', '']
+            }))
+          })),
+          assignments: mod.assignments || []
+        };
+      });
 
       formData.append('modules', JSON.stringify(cleanModulesDraft));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
@@ -590,13 +654,25 @@ const CourseCreator = () => {
       });
 
       // Prepare clean modules array for JSON serialization (omit File objects)
-      const cleanModulesPublish = modules.map(mod => ({
-        ...mod,
-        resources: (mod.resources || []).map(res => {
-          const { videoFile, ...cleanRes } = res;
-          return cleanRes;
-        })
-      }));
+      const cleanModulesPublish = modules.map(mod => {
+        const cleanRes = (mod.resources || []).map(res => {
+          const { videoFile, ...cleanResItem } = res;
+          return cleanResItem;
+        });
+        return {
+          ...mod,
+          resources: cleanRes,
+          lessons: cleanRes,
+          quizzes: (mod.quizzes || []).map(q => ({
+            ...q,
+            questions: (q.questions || []).map(qst => ({
+              ...qst,
+              options: Array.isArray(qst.options) ? qst.options : ['', '', '', '']
+            }))
+          })),
+          assignments: mod.assignments || []
+        };
+      });
 
       formData.append('modules', JSON.stringify(cleanModulesPublish));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
@@ -655,8 +731,8 @@ const CourseCreator = () => {
       <div className="wrap">
         <div className="dash-header" style={{ marginTop: '20px' }}>
           <div className="eyebrow">Course Management</div>
-          <h1>Create New Course</h1>
-          <p>Build comprehensive courses with modules, quizzes, assignments, and learning resources for your students.</p>
+          <h1>{id ? `Edit Course — ${basicInfo.title || 'Resources & Details'}` : 'Create New Course'}</h1>
+          <p>{id ? 'Update curriculum modules, lessons, quizzes, assignments, and learning resources.' : 'Build comprehensive courses with modules, quizzes, assignments, and learning resources for your students.'}</p>
         </div>
 
         {/* Section Navigation */}
@@ -1083,7 +1159,7 @@ const CourseCreator = () => {
                                 + Add Resource
                               </button>
                             </div>
-                            {module.resources.map((resource, resourceIndex) => (
+                            {(module.resources || []).map((resource, resourceIndex) => (
                               <div key={resource.id} style={{
                                 background: '#ffffff',
                                 border: '1px solid #E5E7EB',
@@ -1267,7 +1343,7 @@ const CourseCreator = () => {
                                 + Add Quiz
                               </button>
                             </div>
-                            {module.quizzes.map((quiz, quizIndex) => (
+                            {(module.quizzes || []).map((quiz, quizIndex) => (
                               <div key={quiz.id} style={{
                                 background: '#ffffff',
                                 border: '1px solid #E5E7EB',
@@ -1349,7 +1425,7 @@ const CourseCreator = () => {
                                     />
                                   </div>
                                 </div>
-                                {quiz.questions.map((question, questionIndex) => (
+                                {(quiz.questions || []).map((question, questionIndex) => (
                                   <div key={question.id} style={{
                                     background: '#F8FAFC',
                                     border: '1px solid #E5E7EB',
@@ -1401,7 +1477,7 @@ const CourseCreator = () => {
                                       />
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
-                                      {question.options.map((option, optionIndex) => (
+                                      {(question.options || []).map((option, optionIndex) => (
                                         <div key={optionIndex} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                           <input
                                             type="radio"
@@ -1457,7 +1533,7 @@ const CourseCreator = () => {
                                 + Add Assignment
                               </button>
                             </div>
-                            {module.assignments.map((assignment, assignmentIndex) => (
+                            {(module.assignments || []).map((assignment, assignmentIndex) => (
                               <div key={assignment.id} style={{
                                 background: '#ffffff',
                                 border: '1px solid #E5E7EB',
@@ -1856,7 +1932,7 @@ const CourseCreator = () => {
                           + Add Discussion Topic
                         </button>
                       </div>
-                      {discussionTopics.map((topic, index) => (
+                      {(discussionTopics || []).map((topic, index) => (
                         <div key={topic.id} style={{
                           background: '#F8FAFC',
                           border: '1px solid #E5E7EB',

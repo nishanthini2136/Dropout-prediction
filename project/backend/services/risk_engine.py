@@ -83,7 +83,7 @@ class RiskEngine:
                 ]
             else:
                 prog_find_query['course_id'] = course_match
-        progress_docs = list(db.get_db()['progress'].find(prog_find_query))
+        progress_docs = list(db.get_db()['progress'].find(prog_find_query, {'updated_at': 1, 'completed_at': 1, 'created_at': 1}))
         for p in progress_docs:
             for date_key in ['updated_at', 'completed_at', 'created_at']:
                 if p.get(date_key):
@@ -95,7 +95,7 @@ class RiskEngine:
         quiz_find_query = {'student_id': student_match}
         if course_match:
             quiz_find_query['course_id'] = course_match
-        quiz_docs = list(db.get_db()['quiz_attempts'].find(quiz_find_query))
+        quiz_docs = list(db.get_db()['quiz_attempts'].find(quiz_find_query, {'timestamp': 1, 'created_at': 1}))
         for q in quiz_docs:
             for date_key in ['timestamp', 'created_at']:
                 if q.get(date_key):
@@ -107,12 +107,12 @@ class RiskEngine:
         sub_find_query = {'student_id': student_match}
         if course_id:
             c_oid = ObjectId(course_id) if ObjectId.is_valid(course_id) else course_id
-            c_assign_ids = [a['_id'] for a in db.get_db()['assignments'].find({'course_id': {'$in': [c_oid, str(course_id)] if ObjectId.is_valid(course_id) else str(course_id)}})]
+            c_assign_ids = [a['_id'] for a in db.get_db()['assignments'].find({'course_id': {'$in': [c_oid, str(course_id)] if ObjectId.is_valid(course_id) else str(course_id)}}, {'_id': 1})]
             if c_assign_ids:
                 sub_find_query['assignment_id'] = {'$in': c_assign_ids}
             else:
                 sub_find_query['assignment_id'] = {'$in': []}
-        sub_docs = list(db.get_db()['submissions'].find(sub_find_query))
+        sub_docs = list(db.get_db()['submissions'].find(sub_find_query, {'submitted_at': 1, 'created_at': 1}))
         for s in sub_docs:
             for date_key in ['submitted_at', 'created_at']:
                 if s.get(date_key):
@@ -151,7 +151,7 @@ class RiskEngine:
         quiz_query = {'student_id': student_match}
         if course_match:
             quiz_query['course_id'] = course_match
-        quiz_attempts = list(db.get_db()['quiz_attempts'].find(quiz_query))
+        quiz_attempts = list(db.get_db()['quiz_attempts'].find(quiz_query, {'max_score': 1, 'score': 1}))
         
         prog_quiz_query = {'user_id': str(student_id), 'quiz_completed': True}
         if course_id:
@@ -163,7 +163,7 @@ class RiskEngine:
                 ]
             else:
                 prog_quiz_query['course_id'] = course_match
-        progress_quizzes = list(db.get_db()['progress'].find(prog_quiz_query))
+        progress_quizzes = list(db.get_db()['progress'].find(prog_quiz_query, {'total': 1, 'score': 1}))
 
         quiz_scores = []
         for q in quiz_attempts:
@@ -179,11 +179,11 @@ class RiskEngine:
         sub_query = {'student_id': student_match, 'status': 'Graded'}
         if course_id:
             c_oid = ObjectId(course_id) if ObjectId.is_valid(course_id) else course_id
-            assign_ids = [a['_id'] for a in db.get_db()['assignments'].find({'course_id': {'$in': [c_oid, str(course_id)] if ObjectId.is_valid(course_id) else str(course_id)}})]
+            assign_ids = [a['_id'] for a in db.get_db()['assignments'].find({'course_id': {'$in': [c_oid, str(course_id)] if ObjectId.is_valid(course_id) else str(course_id)}}, {'_id': 1})]
             if assign_ids:
                 sub_query['assignment_id'] = {'$in': assign_ids}
                 
-        graded_assignments = list(db.get_db()['submissions'].find(sub_query))
+        graded_assignments = list(db.get_db()['submissions'].find(sub_query, {'_id': 1}))
         assessments_completed = len(quiz_scores) + len(graded_assignments)
 
         # 5. Assignment completion rate
@@ -191,22 +191,23 @@ class RiskEngine:
         total_assignments = 0
         if course_id:
             c_oid = ObjectId(course_id) if ObjectId.is_valid(course_id) else course_id
-            assigns = list(db.get_db()['assignments'].find({'course_id': {'$in': [c_oid, str(course_id)] if ObjectId.is_valid(course_id) else str(course_id)}}))
+            assigns = list(db.get_db()['assignments'].find({'course_id': {'$in': [c_oid, str(course_id)] if ObjectId.is_valid(course_id) else str(course_id)}}, {'due_date': 1}))
             assign_ids = [a['_id'] for a in assigns]
             total_assignments = len(assigns)
             if assign_ids:
                 all_sub_query['assignment_id'] = {'$in': assign_ids}
         else:
             user_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
-            enrolled = list(db.get_db()['enrollments'].find({'user_id': user_match}))
+            enrolled = list(db.get_db()['enrollments'].find({'user_id': user_match}, {'course_id': 1}))
             enrolled_course_ids = [e['course_id'] for e in enrolled]
             total_assignments = db.get_db()['assignments'].count_documents({'course_id': {'$in': enrolled_course_ids}})
 
         on_time = 0
         if total_assignments > 0:
-            submissions = list(db.get_db()['submissions'].find(all_sub_query))
+            submissions = list(db.get_db()['submissions'].find(all_sub_query, {'assignment_id': 1, 'submitted_at': 1}))
+            assigns_dict = {a['_id']: a for a in assigns} if course_id else {}
             for sub in submissions:
-                assignment = db.get_db()['assignments'].find_one({'_id': sub['assignment_id']})
+                assignment = assigns_dict.get(sub['assignment_id']) or db.get_db()['assignments'].find_one({'_id': sub['assignment_id']}, {'due_date': 1})
                 if assignment and assignment.get('due_date') and sub.get('submitted_at'):
                     if sub['submitted_at'] <= assignment['due_date']:
                         on_time += 1
@@ -251,7 +252,7 @@ class RiskEngine:
             top_pred = max(preds, key=lambda x: x.get('risk_probability', 0.0))
             badge = top_pred.get('risk_level', 'Low')
             score = round(top_pred.get('risk_probability', 0.0) * 100, 1)
-            last_calc = top_pred.get('updated_at') or top_pred.get('created_at') or datetime.utcnow()
+            last_calc = datetime.utcnow()
         else:
             badge = 'Low'
             score = 0.0
@@ -267,6 +268,8 @@ class RiskEngine:
             }}
         )
         iso_str = last_calc.isoformat() if hasattr(last_calc, 'isoformat') else str(last_calc)
+        if not iso_str.endswith('Z') and '+' not in iso_str:
+            iso_str += 'Z'
         return badge, score, iso_str
 
     def predict_risk(self, student_id: str, course_id: str = None):
@@ -301,10 +304,24 @@ class RiskEngine:
         features = self.extract_features(student_id, course_id)
 
         risk_probability = 0.0
-        risk_level = "Low"
-        model_used = False
+        # Check if course is already completed (100% progress or all lessons completed)
+        is_completed = False
+        if course_id:
+            s_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
+            c_match = {'$in': [ObjectId(course_id), str(course_id)]} if ObjectId.is_valid(course_id) else str(course_id)
+            enrollment_doc = db.get_db()['enrollments'].find_one({
+                '$or': [{'student_id': s_match}, {'user_id': s_match}],
+                'course_id': c_match
+            })
+            if enrollment_doc and (enrollment_doc.get('progress', 0) >= 100 or enrollment_doc.get('status') == 'completed'):
+                is_completed = True
 
-        if self.model:
+        if is_completed:
+            risk_probability = 0.0
+            risk_level = "Low"
+            model_used = True
+            print(f"[RiskEngine] Course {course_id} is 100% COMPLETED by student {student_id}. Setting Risk to 0% (Low).")
+        elif self.model:
             try:
                 input_features = [
                     features['avg_activity_day'],
@@ -358,13 +375,26 @@ class RiskEngine:
 
         pred_model = PredictionModel()
         
-        # Calculate dynamic 4-week forecast purely using CatBoost on projected features
-        weekly_forecast = self.compute_weekly_forecast(
-            student_id=student_id,
-            course_id=course_id,
-            current_risk_prob=risk_probability,
-            features=features
-        )
+        if is_completed:
+            weekly_forecast = [
+                {'week': 1, 'risk_pct': 0.0},
+                {'week': 2, 'risk_pct': 0.0},
+                {'week': 3, 'risk_pct': 0.0},
+                {'week': 4, 'risk_pct': 0.0}
+            ]
+            forecast_metadata = {
+                'status': 'completed',
+                'momentum': 'Completed',
+                'message': 'Course successfully completed'
+            }
+        else:
+            # Calculate dynamic 4-week forecast purely using CatBoost on projected features
+            weekly_forecast, forecast_metadata = self.compute_weekly_forecast(
+                student_id=student_id,
+                course_id=course_id,
+                current_risk_prob=risk_probability,
+                features=features
+            )
         forecast_type = "trend_based"
 
         pred_model.create_or_update_prediction(
@@ -375,7 +405,8 @@ class RiskEngine:
             model_version=self.model_version,
             features=features,
             weekly_forecast=weekly_forecast,
-            forecast_type=forecast_type
+            forecast_type=forecast_type,
+            forecast_metadata=forecast_metadata
         )
 
         try:
@@ -392,7 +423,8 @@ class RiskEngine:
             'risk_score': round(risk_probability * 100, 1),
             'features': features,
             'weekly_forecast': weekly_forecast,
-            'forecast_type': forecast_type
+            'forecast_type': forecast_type,
+            'forecast_metadata': forecast_metadata
         }
 
     def calculate_learning_velocity(self, student_id: str, course_id: str = None, features: dict = None) -> dict:
@@ -519,7 +551,11 @@ class RiskEngine:
         
         # Week 1: Exact CatBoost prediction on current features
         w1_risk_pct = round(max(0.0, min(100.0, current_risk_prob * 100.0)), 1)
-        weekly_forecast.append({"week": 1, "risk_pct": w1_risk_pct})
+        weekly_forecast.append({
+            "week": 1,
+            "risk_pct": w1_risk_pct,
+            "risk_probability": round(float(current_risk_prob), 4)
+        })
 
         # Weeks 2, 3, 4: Project features forward and predict with CatBoost model
         for w in range(2, 5):
@@ -571,10 +607,22 @@ class RiskEngine:
 
             validated_prob_w = max(0.0, min(1.0, pred_prob_w))
             risk_pct_w = round(validated_prob_w * 100.0, 1)
-            weekly_forecast.append({"week": w, "risk_pct": risk_pct_w})
+            weekly_forecast.append({
+                "week": w,
+                "risk_pct": risk_pct_w,
+                "risk_probability": round(float(validated_prob_w), 4)
+            })
 
             print(f"[RiskEngine] Week {w} Projected Features: {proj_feature_vector} -> CatBoost Risk: {risk_pct_w}%")
 
-        return weekly_forecast
+        forecast_metadata = {
+            "forecast_method": "CatBoost feature-projection forecasting",
+            "model": self.model_version,
+            "forecast_horizon_weeks": 4,
+            "generated_at": datetime.utcnow().isoformat(),
+            "description": "The system uses the trained CatBoost model to predict current risk (Week 1) and forecast Weeks 2–4 by projecting future behavioral features from historical learning velocity and recent engagement trends. Each projected weekly feature vector is independently evaluated by the same trained CatBoost model."
+        }
+
+        return weekly_forecast, forecast_metadata
 
 
