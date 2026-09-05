@@ -44,7 +44,11 @@ const formatTimeAgo = (dateStr, now = Date.now()) => {
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState('courses'); // courses, students, alerts, grading, analytics
+  
+  // Navigation tabs: 'courses', 'reviews', 'instructors', 'students', 'alerts', 'analytics', 'audit'
+  const [activeTab, setActiveTab] = useState('courses');
+  
+  // Core states
   const [courses, setCourses] = useState([]);
   const [students, setStudents] = useState([]);
   const [analytics, setAnalytics] = useState(null);
@@ -53,43 +57,52 @@ const AdminDashboard = () => {
   const [recalculating, setRecalculating] = useState({}); // { [studentId]: boolean }
   const [recalculatingAll, setRecalculatingAll] = useState(false);
   
-  // Grading & Submission state
-  const [assignments, setAssignments] = useState([]);
-  const [selectedCourseForGrading, setSelectedCourseForGrading] = useState('');
-  const [selectedAssignmentForSubmissions, setSelectedAssignmentForSubmissions] = useState(null);
-  const [submissions, setSubmissions] = useState([]);
-  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
-  const [gradingData, setGradingData] = useState({}); // { [submissionId]: { grade, feedback } }
+  // 1. Pending Course Reviews state
+  const [pendingCourses, setPendingCourses] = useState([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [reviewActionInProgress, setReviewActionInProgress] = useState({}); // { [courseId]: boolean }
+  const [rejectModalCourse, setRejectModalCourse] = useState(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
+
+  // 2. Instructors Management state
+  const [instructors, setInstructors] = useState([]);
+  const [loadingInstructors, setLoadingInstructors] = useState(false);
+  const [showAddInstructorModal, setShowAddInstructorModal] = useState(false);
+  const [newInstructor, setNewInstructor] = useState({ name: '', email: '', password: '', phone: '', bio: '' });
+  const [addInstructorError, setAddInstructorError] = useState('');
+  const [addInstructorSubmitting, setAddInstructorSubmitting] = useState(false);
+
+  // 3. Audit Logs state
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [loadingAuditLogs, setLoadingAuditLogs] = useState(false);
+  const [auditActionFilter, setAuditActionFilter] = useState('all');
   
-  // Real-time ticking state to dynamically update relative timestamps (e.g., "Just now" -> "1m ago" -> "2m ago")
+  // Real-time relative clock
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTime(Date.now());
-    }, 10000); // Ticks every 10 seconds to dynamically update relative timestamps
+    }, 10000);
     return () => clearInterval(timer);
   }, []);
   
   useEffect(() => {
     fetchStats();
+    fetchPendingCoursesCount();
+    
     if (activeTab === 'courses') fetchCourses();
+    if (activeTab === 'reviews') fetchPendingCourses();
+    if (activeTab === 'instructors') fetchInstructors();
     if (activeTab === 'students' || activeTab === 'alerts') fetchStudents();
     if (activeTab === 'analytics') fetchAnalytics();
-    if (activeTab === 'grading') {
-      fetchCourses().then(courseList => {
-        if (courseList && courseList.length > 0) {
-          const defaultCid = selectedCourseForGrading || courseList[0]._id;
-          setSelectedCourseForGrading(defaultCid);
-          fetchAssignmentsForCourse(defaultCid);
-        }
-      });
-    }
+    if (activeTab === 'audit') fetchAuditLogs();
   }, [activeTab]);
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get('/api/admin/dashboard', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const response = await axios.get('/api/admin/dashboard');
       const statsData = response.data.stats || response.data;
       setStats({
         totalCourses: statsData.total_courses || 0,
@@ -104,7 +117,7 @@ const AdminDashboard = () => {
 
   const fetchCourses = async () => {
     try {
-      const response = await axios.get('/api/courses', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const response = await axios.get('/api/courses');
       const list = Array.isArray(response.data.courses || response.data) ? (response.data.courses || response.data) : [];
       setCourses(list);
       return list;
@@ -116,7 +129,7 @@ const AdminDashboard = () => {
 
   const fetchStudents = async () => {
     try {
-      const response = await axios.get('/api/admin/students', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const response = await axios.get('/api/admin/students');
       const studentsList = Array.isArray(response.data) ? response.data : (response.data.students || []);
       setStudents(studentsList);
     } catch (error) {
@@ -126,7 +139,7 @@ const AdminDashboard = () => {
 
   const fetchAnalytics = async () => {
     try {
-      const response = await axios.get('/api/admin/analytics', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const response = await axios.get('/api/admin/analytics');
       const data = response.data.analytics || response.data;
       setAnalytics(data);
     } catch (error) {
@@ -134,80 +147,166 @@ const AdminDashboard = () => {
     }
   };
 
-  const fetchAssignmentsForCourse = async (courseId) => {
+  // -------------------------------------------------------------
+  // 1. Pending Course Reviews Handlers
+  // -------------------------------------------------------------
+  const fetchPendingCoursesCount = async () => {
     try {
-      setSelectedAssignmentForSubmissions(null);
-      setSubmissions([]);
-      const response = await axios.get(`/api/assignments/course/${courseId}`, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-      setAssignments(Array.isArray(response.data) ? response.data : []);
-    } catch (error) {
-      console.error('Error fetching assignments:', error);
-      setAssignments([]);
+      const res = await axios.get('/api/admin/courses/pending');
+      const list = res.data.courses || [];
+      setPendingCourses(list);
+    } catch (err) {
+      console.error('Failed to query pending courses count:', err);
     }
   };
 
-  const handleViewSubmissions = async (assignment) => {
-    setSelectedAssignmentForSubmissions(assignment);
-    setLoadingSubmissions(true);
+  const fetchPendingCourses = async () => {
+    setLoadingPending(true);
     try {
-      const response = await axios.get(`/api/assignments/${assignment._id}/submissions`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
-      const list = Array.isArray(response.data) ? response.data : [];
-      setSubmissions(list);
-      const initialGrades = {};
-      list.forEach(s => {
-        initialGrades[s._id] = { grade: (s.grade !== null && s.grade !== undefined) ? s.grade : '', feedback: s.feedback || '' };
-      });
-      setGradingData(initialGrades);
-    } catch (error) {
-      console.error('Error fetching submissions:', error);
-      setSubmissions([]);
+      const res = await axios.get('/api/admin/courses/pending');
+      setPendingCourses(res.data.courses || []);
+    } catch (err) {
+      console.error('Error fetching pending courses:', err);
+      setToastMessage(err.response?.data?.error || 'Failed to fetch pending courses');
     } finally {
-      setLoadingSubmissions(false);
+      setLoadingPending(false);
     }
   };
 
-  const handleGradeChange = (submissionId, field, value) => {
-    setGradingData(prev => ({
-      ...prev,
-      [submissionId]: {
-        ...prev[submissionId],
-        [field]: value
-      }
-    }));
+  const handleApproveCourse = async (course) => {
+    const courseId = course._id;
+    setReviewActionInProgress(prev => ({ ...prev, [courseId]: true }));
+    try {
+      const res = await axios.post(`/api/admin/courses/${courseId}/approve`);
+      // Optimistically remove from pending list
+      setPendingCourses(prev => prev.filter(c => c._id !== courseId));
+      setToastMessage(res.data.message || `Course "${course.title}" approved and published successfully!`);
+      fetchStats();
+    } catch (err) {
+      console.error('Error approving course:', err);
+      setToastMessage(err.response?.data?.error || 'Failed to approve course');
+    } finally {
+      setReviewActionInProgress(prev => ({ ...prev, [courseId]: false }));
+    }
   };
 
-  const handleGradeSubmit = async (submissionId) => {
-    const current = gradingData[submissionId] || {};
-    if (current.grade === '' || isNaN(current.grade) || current.grade < 0 || current.grade > 100) {
-      setToastMessage('Please enter a valid numeric grade between 0 and 100.');
+  const handleOpenRejectModal = (course) => {
+    setRejectModalCourse(course);
+    setRejectionReason('');
+  };
+
+  const handleCloseRejectModal = () => {
+    setRejectModalCourse(null);
+    setRejectionReason('');
+  };
+
+  const handleRejectCourseSubmit = async (e) => {
+    e.preventDefault();
+    if (!rejectModalCourse) return;
+    if (!rejectionReason.trim()) {
+      setToastMessage('Rejection reason is required.');
       return;
     }
+
+    const courseId = rejectModalCourse._id;
+    const courseTitle = rejectModalCourse.title;
+    setRejectSubmitting(true);
     try {
-      await axios.post(`/api/assignments/submission/${submissionId}/grade`, {
-        grade: parseFloat(current.grade),
-        feedback: current.feedback || ''
-      }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      const res = await axios.post(`/api/admin/courses/${courseId}/reject`, {
+        rejection_reason: rejectionReason.trim()
       });
-      setToastMessage('Grade and feedback saved successfully!');
-      setSubmissions(prev => prev.map(s => s._id === submissionId ? {
-        ...s,
-        status: 'Graded',
-        grade: parseFloat(current.grade),
-        feedback: current.feedback
-      } : s));
-    } catch (error) {
-      console.error('Error grading submission:', error);
-      setToastMessage('Failed to submit grade.');
+      // Optimistically remove from pending list
+      setPendingCourses(prev => prev.filter(c => c._id !== courseId));
+      setToastMessage(res.data.message || `Course "${courseTitle}" returned with rejection feedback.`);
+      handleCloseRejectModal();
+      fetchStats();
+    } catch (err) {
+      console.error('Error rejecting course:', err);
+      setToastMessage(err.response?.data?.error || 'Failed to reject course');
+    } finally {
+      setRejectSubmitting(false);
     }
   };
 
+  // -------------------------------------------------------------
+  // 2. Instructor Management Handlers
+  // -------------------------------------------------------------
+  const fetchInstructors = async () => {
+    setLoadingInstructors(true);
+    try {
+      const res = await axios.get('/api/admin/instructors');
+      setInstructors(res.data.instructors || []);
+    } catch (err) {
+      console.error('Error fetching instructors:', err);
+      setToastMessage(err.response?.data?.error || 'Failed to fetch instructors');
+    } finally {
+      setLoadingInstructors(false);
+    }
+  };
+
+  const handleCreateInstructorSubmit = async (e) => {
+    e.preventDefault();
+    setAddInstructorError('');
+
+    if (!newInstructor.name.trim() || !newInstructor.email.trim() || !newInstructor.password.trim()) {
+      setAddInstructorError('Name, email, and temporary password are required.');
+      return;
+    }
+
+    setAddInstructorSubmitting(true);
+    try {
+      const res = await axios.post('/api/admin/instructors', {
+        name: newInstructor.name.trim(),
+        email: newInstructor.email.trim().toLowerCase(),
+        password: newInstructor.password,
+        phone: newInstructor.phone.trim(),
+        bio: newInstructor.bio.trim()
+      });
+
+      setToastMessage(res.data.message || `Instructor "${newInstructor.name}" provisioned successfully!`);
+      setShowAddInstructorModal(false);
+      setNewInstructor({ name: '', email: '', password: '', phone: '', bio: '' });
+      fetchInstructors();
+    } catch (err) {
+      console.error('Error creating instructor:', err);
+      setAddInstructorError(err.response?.data?.error || 'Failed to provision instructor');
+    } finally {
+      setAddInstructorSubmitting(false);
+    }
+  };
+
+  // -------------------------------------------------------------
+  // 3. Audit Logs Handlers
+  // -------------------------------------------------------------
+  const fetchAuditLogs = async (filter = auditActionFilter) => {
+    setLoadingAuditLogs(true);
+    try {
+      const url = filter && filter !== 'all' 
+        ? `/api/admin/audit-logs?action=${filter}` 
+        : '/api/admin/audit-logs';
+      const res = await axios.get(url);
+      setAuditLogs(res.data.logs || []);
+    } catch (err) {
+      console.error('Error fetching audit logs:', err);
+      setToastMessage(err.response?.data?.error || 'Failed to fetch audit logs');
+    } finally {
+      setLoadingAuditLogs(false);
+    }
+  };
+
+  const handleAuditFilterChange = (e) => {
+    const val = e.target.value;
+    setAuditActionFilter(val);
+    fetchAuditLogs(val);
+  };
+
+  // -------------------------------------------------------------
+  // 4. Student Risk Handlers
+  // -------------------------------------------------------------
   const handleRecalculateRisk = async (studentId) => {
     try {
       setRecalculating(prev => ({ ...prev, [studentId]: true }));
-      const response = await axios.post(`/api/admin/risk/recalculate`, { student_id: studentId }, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const response = await axios.post(`/api/admin/risk/recalculate`, { student_id: studentId });
       
       const updated = response.data.student;
       const nowIso = new Date().toISOString();
@@ -237,7 +336,7 @@ const AdminDashboard = () => {
   const handleRecalculateAllRisk = async () => {
     try {
       setRecalculatingAll(true);
-      const response = await axios.post(`/api/admin/risk/recalculate`, {}, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+      const response = await axios.post(`/api/admin/risk/recalculate`, {});
       setToastMessage(response.data.message || 'All student risks recalculated.');
       await fetchStudents();
       setCurrentTime(Date.now());
@@ -251,12 +350,22 @@ const AdminDashboard = () => {
     }
   };
 
-  const handleLogout = () => {
-    logout();
-    navigate('/');
+  const getActionBadgeStyle = (action) => {
+    switch (action) {
+      case 'approve_course':
+        return { bg: '#ecfdf5', color: '#047857', label: 'Approve Course' };
+      case 'reject_course':
+        return { bg: '#fee2e2', color: '#b91c1c', label: 'Reject Course' };
+      case 'provision_instructor':
+        return { bg: '#f3e8ff', color: '#7e22ce', label: 'Provision Instructor' };
+      case 'recalculate_student_risk':
+        return { bg: '#e0f2fe', color: '#0369a1', label: 'Risk Recalculation' };
+      case 'view_student_roster':
+        return { bg: '#f1f5f9', color: '#475569', label: 'View Roster' };
+      default:
+        return { bg: '#f8fafc', color: '#334155', label: action || 'Action' };
+    }
   };
-
-  const getInitials = (name) => name ? name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : 'AD';
 
   return (
     <div className="dashboard-screen">
@@ -264,46 +373,61 @@ const AdminDashboard = () => {
 
       <div className="wrap">
         <div className="dash-header">
-          <h1>Admin Dashboard</h1>
-          <p>Manage courses, monitor student risk, and view platform analytics.</p>
+          <h1>Admin Control Center</h1>
+          <p>Review course submissions, manage faculty instructors, monitor student risk intelligence, and audit operations.</p>
         </div>
 
         <div className="stat-row">
-          <div className="stat-card"><div className="icon">📚</div><div className="num">{stats.totalCourses}</div><div className="lbl">Active Courses</div></div>
+          <div className="stat-card"><div className="icon">📚</div><div className="num">{stats.totalCourses}</div><div className="lbl">Published Courses</div></div>
+          <div className="stat-card"><div className="icon">⏳</div><div className="num" style={{ color: pendingCourses.length > 0 ? '#f59e0b' : 'inherit' }}>{pendingCourses.length}</div><div className="lbl">Pending Review</div></div>
           <div className="stat-card"><div className="icon">👥</div><div className="num">{stats.totalEnrollments}</div><div className="lbl">Total Enrollments</div></div>
           <div className="stat-card"><div className="icon">🎓</div><div className="num">{stats.totalStudents}</div><div className="lbl">Registered Students</div></div>
         </div>
 
-        {/* Custom Tabs */}
-        <div style={{ display: 'flex', gap: '20px', marginBottom: '30px', borderBottom: '1px solid #e5e7eb', paddingBottom: '10px' }}>
-          <button 
-            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'courses' ? 'bold' : 'normal', color: activeTab === 'courses' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
-            onClick={() => setActiveTab('courses')}
-          >Courses</button>
-          <button 
-            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'students' ? 'bold' : 'normal', color: activeTab === 'students' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
-            onClick={() => setActiveTab('students')}
-          >Students</button>
-          <button 
-            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'alerts' ? 'bold' : 'normal', color: activeTab === 'alerts' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
-            onClick={() => setActiveTab('alerts')}
-          >Alerts</button>
-          <button 
-            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'grading' ? 'bold' : 'normal', color: activeTab === 'grading' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
-            onClick={() => setActiveTab('grading')}
-          >Grading</button>
-          <button 
-            style={{ background: 'none', border: 'none', fontSize: '18px', fontWeight: activeTab === 'analytics' ? 'bold' : 'normal', color: activeTab === 'analytics' ? '#3b82f6' : '#6b7280', cursor: 'pointer' }}
-            onClick={() => setActiveTab('analytics')}
-          >Analytics</button>
+        {/* Navigation Tabs */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '30px', borderBottom: '1px solid #e5e7eb', paddingBottom: '4px', flexWrap: 'wrap' }}>
+          {[
+            { id: 'courses', label: 'Published Courses' },
+            { id: 'reviews', label: `Pending Reviews${pendingCourses.length > 0 ? ` (${pendingCourses.length})` : ''}`, badge: pendingCourses.length > 0 },
+            { id: 'instructors', label: 'Instructors' },
+            { id: 'students', label: 'Students' },
+            { id: 'alerts', label: 'Risk Alerts' },
+            { id: 'analytics', label: 'Analytics' },
+            { id: 'audit', label: 'Audit Log' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                background: 'none',
+                border: 'none',
+                borderBottom: activeTab === tab.id ? '3px solid #3b82f6' : '3px solid transparent',
+                fontSize: '15px',
+                fontWeight: activeTab === tab.id ? '700' : '500',
+                color: activeTab === tab.id ? '#1d4ed8' : '#64748b',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s'
+              }}
+            >
+              {tab.label}
+              {tab.badge && (
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+              )}
+            </button>
+          ))}
         </div>
 
-        {/* Tab Contents */}
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 1: PUBLISHED COURSES                                      */}
+        {/* ------------------------------------------------------------- */}
         {activeTab === 'courses' && (
           <div>
             <div className="section-head">
-              <h2>Course Catalog</h2>
-              <button className="btn btn-gold btn-sm" onClick={() => navigate('/admin/course/create')}>+ Add Course</button>
+              <h2>Published Course Catalog</h2>
             </div>
             <table className="admin-table">
               <thead><tr><th>Course</th><th>Code</th><th>Instructor</th><th>Status</th><th>Actions</th></tr></thead>
@@ -311,27 +435,289 @@ const AdminDashboard = () => {
                 {courses.map(course => (
                   <tr key={course._id}>
                     <td><div className="ttitle">{course.title}</div><div style={{ fontSize: '12px', color: '#9CA3AF' }}>{course.category}</div></td>
-                    <td className="tcode">{course.code}</td>
-                    <td>{course.instructor}</td>
+                    <td className="tcode">{course.code || '—'}</td>
+                    <td>{course.instructor || 'E-Learning Faculty'}</td>
                     <td><span className={`status-badge ${course.is_active ? 'active' : 'inactive'}`}>{course.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td>
                       <button 
                         className="btn btn-ghost btn-sm" 
-                        onClick={() => navigate(`/admin/course/edit/${course._id}`)}
+                        onClick={() => navigate(`/course/${course._id}`)}
                         style={{ padding: '4px 10px', fontSize: '12px' }}
                       >
-                        ✏️ Edit Resources & Details
+                        👁️ View Course
                       </button>
                     </td>
                   </tr>
                 ))}
+                {courses.length === 0 && (
+                  <tr><td colSpan="5" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>No courses in catalog.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
         )}
 
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 2: PENDING COURSE REVIEWS                                  */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === 'reviews' && (
+          <div>
+            <div className="section-head" style={{ marginBottom: '20px' }}>
+              <div>
+                <h2>Pending Course Reviews</h2>
+                <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                  Evaluate course curriculum, video resources, and assessment materials submitted by instructors.
+                </p>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={fetchPendingCourses} disabled={loadingPending}>
+                {loadingPending ? 'Refreshing...' : '🔄 Refresh Queue'}
+              </button>
+            </div>
 
+            {loadingPending ? (
+              <div style={{ background: '#fff', padding: '40px', borderRadius: '12px', textAlign: 'center', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>⏳</div>
+                <div>Loading pending review submissions...</div>
+              </div>
+            ) : pendingCourses.length === 0 ? (
+              <div style={{ background: '#ffffff', padding: '48px 24px', borderRadius: '12px', textAlign: 'center', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>✅</div>
+                <h3 style={{ margin: '0 0 6px', color: '#0f172a', fontWeight: '700' }}>No courses pending review</h3>
+                <p style={{ color: '#64748b', margin: 0, fontSize: '14px' }}>
+                  All instructor course submissions have been reviewed and published.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px' }}>
+                {pendingCourses.map(course => {
+                  const isProcessing = reviewActionInProgress[course._id];
+                  const moduleCount = Array.isArray(course.modules) ? course.modules.length : 0;
+                  const dateStr = course.updated_at || course.created_at;
+                  const formattedDate = dateStr ? new Date(dateStr).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recently';
 
+                  return (
+                    <div 
+                      key={course._id}
+                      style={{ 
+                        background: '#ffffff', 
+                        borderRadius: '12px', 
+                        border: '1px solid #e2e8f0', 
+                        padding: '20px', 
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: '700', textTransform: 'uppercase', color: '#d97706', background: '#fef3c7', padding: '3px 8px', borderRadius: '4px' }}>
+                            Pending Review
+                          </span>
+                          <span style={{ fontSize: '12px', color: '#94a3b8' }}>Submitted {formattedDate}</span>
+                        </div>
+
+                        <h3 style={{ margin: '0 0 6px', fontSize: '18px', fontWeight: '700', color: '#0f172a', lineHeight: 1.3 }}>
+                          {course.title}
+                        </h3>
+                        
+                        <div style={{ fontSize: '12px', color: '#3b82f6', fontWeight: '600', marginBottom: '12px' }}>
+                          🏷️ {course.category || 'General'}
+                        </div>
+
+                        <p style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5, margin: '0 0 16px', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {course.description || 'No description provided.'}
+                        </p>
+
+                        <div style={{ background: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #f1f5f9', marginBottom: '18px', fontSize: '13px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                            <span style={{ color: '#64748b' }}>Instructor:</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{course.instructor_name || course.instructor || 'Unknown'}</span>
+                          </div>
+                          {course.instructor_email && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <span style={{ color: '#64748b' }}>Email:</span>
+                              <span style={{ color: '#475569', fontSize: '12px' }}>{course.instructor_email}</span>
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#64748b' }}>Modules & Lessons:</span>
+                            <span style={{ fontWeight: '600', color: '#0f172a' }}>{moduleCount} Modules</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div style={{ display: 'flex', gap: '10px', borderTop: '1px solid #f1f5f9', paddingTop: '16px' }}>
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => navigate(`/course/${course._id}`)}
+                          style={{ flex: 1, padding: '8px 0', fontSize: '13px', border: '1px solid #cbd5e1' }}
+                        >
+                          👁️ Preview
+                        </button>
+                        <button
+                          onClick={() => handleOpenRejectModal(course)}
+                          disabled={isProcessing}
+                          style={{
+                            flex: 1,
+                            padding: '8px 0',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            background: '#fff1f2',
+                            color: '#e11d48',
+                            border: '1px solid #fecdd3',
+                            borderRadius: '6px',
+                            cursor: isProcessing ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          ✕ Reject
+                        </button>
+                        <button
+                          onClick={() => handleApproveCourse(course)}
+                          disabled={isProcessing}
+                          style={{
+                            flex: 1.2,
+                            padding: '8px 0',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            background: '#10b981',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: isProcessing ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          {isProcessing ? 'Saving...' : '✓ Approve'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 3: INSTRUCTORS MANAGEMENT                                 */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === 'instructors' && (
+          <div>
+            <div className="section-head" style={{ marginBottom: '20px' }}>
+              <div>
+                <h2>Instructor Directory & Faculty Management</h2>
+                <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                  Provision instructor accounts, inspect course catalogs, and track cumulative student reach.
+                </p>
+              </div>
+              <button 
+                className="btn btn-gold btn-sm"
+                onClick={() => { setShowAddInstructorModal(true); setAddInstructorError(''); }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+              >
+                + Provision Instructor
+              </button>
+            </div>
+
+            {loadingInstructors ? (
+              <div style={{ background: '#fff', padding: '40px', borderRadius: '12px', textAlign: 'center', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>👥</div>
+                <div>Loading instructors...</div>
+              </div>
+            ) : instructors.length === 0 ? (
+              <div style={{ background: '#ffffff', padding: '40px', borderRadius: '12px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>👨‍🏫</div>
+                <h3 style={{ margin: '0 0 6px', color: '#0f172a' }}>No instructors provisioned</h3>
+                <p style={{ color: '#64748b', margin: 0, fontSize: '14px' }}>Click "Provision Instructor" to create the first faculty account.</p>
+              </div>
+            ) : (
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Instructor</th>
+                    <th>Contact</th>
+                    <th>Authored Courses</th>
+                    <th>Total Student Reach</th>
+                    <th>Status</th>
+                    <th>Joined</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {instructors.map(inst => {
+                    const joined = inst.created_at ? new Date(inst.created_at).toLocaleDateString() : 'Active Faculty';
+                    return (
+                      <tr key={inst._id}>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ 
+                              width: '36px', 
+                              height: '36px', 
+                              borderRadius: '50%', 
+                              background: 'linear-gradient(135deg, #6366f1 0%, #818cf8 100%)', 
+                              color: '#ffffff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontWeight: '700',
+                              fontSize: '13px'
+                            }}>
+                              {inst.name ? inst.name.slice(0, 2).toUpperCase() : 'IN'}
+                            </div>
+                            <div>
+                              <div style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>{inst.name}</div>
+                              <div style={{ fontSize: '12px', color: '#64748b' }}>{inst.bio || 'Platform Instructor'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: '500', color: '#334155' }}>{inst.email}</div>
+                          <div style={{ fontSize: '12px', color: '#94a3b8' }}>{inst.phone || 'No phone recorded'}</div>
+                        </td>
+                        <td>
+                          <span style={{ 
+                            fontWeight: '700', 
+                            fontSize: '14px', 
+                            color: '#4338ca', 
+                            background: '#eef2ff', 
+                            padding: '4px 10px', 
+                            borderRadius: '6px' 
+                          }}>
+                            📚 {inst.course_count || 0} Courses
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: '700', color: '#0f172a', fontSize: '14px' }}>
+                            👥 {inst.total_students || 0} Learners
+                          </span>
+                        </td>
+                        <td>
+                          <span style={{ 
+                            fontSize: '11px', 
+                            fontWeight: '700', 
+                            color: '#15803d', 
+                            background: '#dcfce7', 
+                            padding: '3px 8px', 
+                            borderRadius: '12px' 
+                          }}>
+                            Active
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '13px', color: '#64748b' }}>
+                          {joined}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 4: STUDENTS                                               */}
+        {/* ------------------------------------------------------------- */}
         {activeTab === 'students' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
@@ -448,7 +834,7 @@ const AdminDashboard = () => {
                             {staleness.text}
                           </span>
                           {staleness.isStale && (
-                            <span title="Risk data is older than 7 days — click Recalculate Risk to refresh" style={{ background: '#fef3c7', color: '#d97706', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600' }}>
+                            <span title="Risk data is older than 7 days" style={{ background: '#fef3c7', color: '#d97706', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600' }}>
                               ⚠️ Needs Refresh
                             </span>
                           )}
@@ -482,6 +868,9 @@ const AdminDashboard = () => {
           </div>
         )}
 
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 5: ALERTS                                                 */}
+        {/* ------------------------------------------------------------- */}
         {activeTab === 'alerts' && (
           <div>
             <div className="section-head">
@@ -545,28 +934,15 @@ const AdminDashboard = () => {
                             <div style={{ 
                               width: `${Math.min(100, Math.max(0, riskScore))}%`, 
                               height: '100%', 
-                              background: '#f43f5e',
-                              borderRadius: '3px'
+                              background: '#f43f5e', 
+                              borderRadius: '3px' 
                             }} />
                           </div>
                         </div>
                       </td>
                       <td>
-                        <span 
-                          title={`Last evaluated: ${staleness.fullDate}`}
-                          style={{ fontSize: '13px', color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                        >
-                          {staleness.isRecent && (
-                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }} />
-                          )}
-                          <span style={{ fontWeight: staleness.isRecent ? '700' : '400', color: staleness.isRecent ? '#15803d' : '#475569' }}>
-                            {staleness.text}
-                          </span>
-                          {staleness.isStale && (
-                            <span title="Risk data is older than 7 days — click Recalculate Risk to refresh" style={{ background: '#fef3c7', color: '#d97706', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '600' }}>
-                              ⚠️ Needs Refresh
-                            </span>
-                          )}
+                        <span style={{ fontSize: '13px', color: '#64748b' }}>
+                          {staleness.text}
                         </span>
                       </td>
                       <td>
@@ -574,14 +950,7 @@ const AdminDashboard = () => {
                           className="btn btn-sm btn-ghost" 
                           onClick={() => handleRecalculateRisk(student._id)}
                           disabled={isBusy}
-                          style={{ 
-                            border: '1px solid #cbd5e1', 
-                            padding: '6px 12px', 
-                            fontSize: '12px', 
-                            fontWeight: '600',
-                            background: isBusy ? '#f1f5f9' : '#ffffff',
-                            cursor: isBusy ? 'not-allowed' : 'pointer'
-                          }}
+                          style={{ border: '1px solid #cbd5e1', padding: '6px 12px', fontSize: '12px', fontWeight: '600' }}
                         >
                           {isBusy ? '🔄 Calculating...' : '⚡ Recalculate'}
                         </button>
@@ -597,176 +966,11 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        {activeTab === 'grading' && (
-          <div>
-            <div className="section-head">
-              <h2>Assignment Grading</h2>
-              <p>Select a course to view assignments and review student submissions.</p>
-            </div>
-            <div style={{ marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center' }}>
-              <select 
-                value={selectedCourseForGrading} 
-                onChange={(e) => {
-                  setSelectedCourseForGrading(e.target.value);
-                  if (e.target.value) fetchAssignmentsForCourse(e.target.value);
-                }}
-                style={{ padding: '10px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', minWidth: '320px', fontSize: '14px' }}
-              >
-                <option value="">-- Select a Course --</option>
-                {courses.map(c => <option key={c._id} value={c._id}>{c.title}</option>)}
-              </select>
-            </div>
-            
-            {selectedCourseForGrading && (
-              <div>
-                {assignments.length > 0 ? (
-                  <table className="admin-table" style={{ marginBottom: '30px' }}>
-                    <thead>
-                      <tr>
-                        <th>Assignment Title</th>
-                        <th>Due Date</th>
-                        <th>Weight</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {assignments.map(assign => (
-                        <tr key={assign._id} style={{ background: selectedAssignmentForSubmissions?._id === assign._id ? '#f1f5f9' : 'transparent' }}>
-                          <td style={{ fontWeight: '600' }}>{assign.title}</td>
-                          <td>{assign.due_date ? new Date(assign.due_date).toLocaleDateString() : 'No due date'}</td>
-                          <td><span style={{ fontWeight: 'bold', color: '#0284c7' }}>{assign.weight}%</span></td>
-                          <td>
-                            <button 
-                              className="btn btn-sm btn-gold" 
-                              onClick={() => handleViewSubmissions(assign)}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                            >
-                              📋 View Submissions {selectedAssignmentForSubmissions?._id === assign._id ? '(Active)' : ''}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div style={{ background: '#fff', padding: '24px', borderRadius: '8px', border: '1px solid #e2e8f0', color: '#64748b' }}>
-                    No assignments found for this course.
-                  </div>
-                )}
-
-                {/* Submissions Section */}
-                {selectedAssignmentForSubmissions && (
-                  <div style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '24px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', marginTop: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', borderBottom: '1px solid #e2e8f0', paddingBottom: '14px' }}>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a', fontWeight: '700' }}>
-                          Submissions for "{selectedAssignmentForSubmissions.title}"
-                        </h3>
-                        <p style={{ margin: '4px 0 0 0', color: '#64748b', fontSize: '13px' }}>
-                          {selectedAssignmentForSubmissions.description}
-                        </p>
-                      </div>
-                      <button 
-                        className="btn btn-sm btn-ghost" 
-                        onClick={() => setSelectedAssignmentForSubmissions(null)}
-                        style={{ border: '1px solid #cbd5e1', padding: '4px 10px' }}
-                      >
-                        ✕ Close
-                      </button>
-                    </div>
-
-                    {loadingSubmissions ? (
-                      <p style={{ color: '#64748b' }}>Loading submissions...</p>
-                    ) : submissions.length > 0 ? (
-                      <table className="admin-table">
-                        <thead>
-                          <tr>
-                            <th>Student</th>
-                            <th>Submission Content</th>
-                            <th>Submitted At</th>
-                            <th>Status</th>
-                            <th>Grade (0-100)</th>
-                            <th>Feedback</th>
-                            <th>Action</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {submissions.map(sub => {
-                            const cur = gradingData[sub._id] || {};
-                            return (
-                              <tr key={sub._id}>
-                                <td>
-                                  <div style={{ fontWeight: '600', color: '#0f172a' }}>{sub.student_name || 'Student'}</div>
-                                  <div style={{ fontSize: '12px', color: '#64748b' }}>{sub.student_email}</div>
-                                </td>
-                                <td style={{ maxWidth: '280px' }}>
-                                  <div style={{ fontSize: '13px', color: '#334155', maxHeight: '75px', overflowY: 'auto', background: '#f8fafc', padding: '8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                                    {sub.text_content || 'No text content submitted'}
-                                  </div>
-                                </td>
-                                <td style={{ fontSize: '12px', color: '#64748b' }}>
-                                  {sub.submitted_at ? new Date(sub.submitted_at).toLocaleString() : 'N/A'}
-                                </td>
-                                <td>
-                                  <span style={{ 
-                                    fontSize: '11px', 
-                                    fontWeight: '700', 
-                                    padding: '3px 8px', 
-                                    borderRadius: '12px',
-                                    background: sub.status === 'Graded' ? '#dcfce7' : '#fef3c7',
-                                    color: sub.status === 'Graded' ? '#15803d' : '#b45309'
-                                  }}>
-                                    {sub.status || 'Submitted'}
-                                  </span>
-                                </td>
-                                <td>
-                                  <input 
-                                    type="number" 
-                                    min="0" 
-                                    max="100" 
-                                    step="0.5"
-                                    placeholder="Score"
-                                    value={cur.grade !== undefined ? cur.grade : ''}
-                                    onChange={(e) => handleGradeChange(sub._id, 'grade', e.target.value)}
-                                    style={{ width: '75px', padding: '6px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-                                  />
-                                </td>
-                                <td>
-                                  <input 
-                                    type="text" 
-                                    placeholder="Add feedback..."
-                                    value={cur.feedback !== undefined ? cur.feedback : ''}
-                                    onChange={(e) => handleGradeChange(sub._id, 'feedback', e.target.value)}
-                                    style={{ width: '160px', padding: '6px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '13px' }}
-                                  />
-                                </td>
-                                <td>
-                                  <button 
-                                    className="btn btn-sm btn-gold"
-                                    onClick={() => handleGradeSubmit(sub._id)}
-                                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                                  >
-                                    Save Grade
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    ) : (
-                      <p style={{ color: '#64748b' }}>No submissions received for this assignment yet.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 6: ANALYTICS                                              */}
+        {/* ------------------------------------------------------------- */}
         {activeTab === 'analytics' && (
           <div>
-            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
               <div>
                 <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>
@@ -822,20 +1026,10 @@ const AdminDashboard = () => {
                 {/* Main Charts Grid */}
                 <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: '24px', marginBottom: '24px' }}>
                   {/* Doughnut Chart */}
-                  <div style={{ 
-                    background: '#ffffff', 
-                    padding: '24px', 
-                    borderRadius: '14px', 
-                    border: '1px solid #e2e8f0', 
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-                    display: 'flex',
-                    flexDirection: 'column'
-                  }}>
+                  <div style={{ background: '#ffffff', padding: '24px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ marginBottom: '16px' }}>
                       <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#0f172a' }}>Cohort Risk Profiling</h3>
-                      <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b' }}>
-                        Predictive machine learning classification breakdown
-                      </p>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b' }}>Predictive machine learning classification breakdown</p>
                     </div>
 
                     <div style={{ position: 'relative', height: '210px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -872,7 +1066,6 @@ const AdminDashboard = () => {
                           }
                         }}
                       />
-                      {/* Center Label inside Donut */}
                       <div style={{ position: 'absolute', textAlign: 'center', pointerEvents: 'none' }}>
                         <div style={{ fontSize: '24px', fontWeight: '800', color: '#0f172a', lineHeight: 1.1 }}>
                           {(analytics.risk_distribution?.High || 0) + (analytics.risk_distribution?.Medium || 0) + (analytics.risk_distribution?.Low || 0)}
@@ -881,45 +1074,28 @@ const AdminDashboard = () => {
                       </div>
                     </div>
 
-                    {/* Clean Pill Legend */}
                     <div style={{ marginTop: 'auto', paddingTop: '16px', borderTop: '1px solid #f1f5f9', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px', textAlign: 'center' }}>
                       <div style={{ padding: '8px 4px', background: '#fff1f2', borderRadius: '8px', border: '1px solid #ffe4e6' }}>
                         <div style={{ fontSize: '11px', fontWeight: '600', color: '#e11d48' }}>High</div>
-                        <div style={{ fontSize: '15px', fontWeight: '800', color: '#e11d48', marginTop: '2px' }}>
-                          {analytics.risk_distribution?.High || 0}
-                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: '800', color: '#e11d48', marginTop: '2px' }}>{analytics.risk_distribution?.High || 0}</div>
                       </div>
                       <div style={{ padding: '8px 4px', background: '#fffbeb', borderRadius: '8px', border: '1px solid #fef3c7' }}>
                         <div style={{ fontSize: '11px', fontWeight: '600', color: '#b45309' }}>Medium</div>
-                        <div style={{ fontSize: '15px', fontWeight: '800', color: '#b45309', marginTop: '2px' }}>
-                          {analytics.risk_distribution?.Medium || 0}
-                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: '800', color: '#b45309', marginTop: '2px' }}>{analytics.risk_distribution?.Medium || 0}</div>
                       </div>
                       <div style={{ padding: '8px 4px', background: '#f0fdf4', borderRadius: '8px', border: '1px solid #dcfce7' }}>
                         <div style={{ fontSize: '11px', fontWeight: '600', color: '#15803d' }}>Low</div>
-                        <div style={{ fontSize: '15px', fontWeight: '800', color: '#15803d', marginTop: '2px' }}>
-                          {analytics.risk_distribution?.Low || 0}
-                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: '800', color: '#15803d', marginTop: '2px' }}>{analytics.risk_distribution?.Low || 0}</div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Horizontal Bar Chart (Course Engagement) */}
-                  <div style={{ 
-                    background: '#ffffff', 
-                    padding: '24px', 
-                    borderRadius: '14px', 
-                    border: '1px solid #e2e8f0', 
-                    boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-                    display: 'flex',
-                    flexDirection: 'column'
-                  }}>
+                  {/* Horizontal Bar Chart */}
+                  <div style={{ background: '#ffffff', padding: '24px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                       <div>
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#0f172a' }}>Curriculum Enrollment Volume</h3>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b' }}>
-                          Student enrollment count across published courses
-                        </p>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#64748b' }}>Student enrollment count across published courses</p>
                       </div>
                       <span style={{ fontSize: '12px', fontWeight: '600', color: '#6366f1', background: '#eef2ff', padding: '4px 10px', borderRadius: '6px' }}>
                         Top {analytics.top_courses?.length || 0} Courses
@@ -951,73 +1127,17 @@ const AdminDashboard = () => {
                               bodyFont: { size: 12 },
                               padding: 10,
                               cornerRadius: 6,
-                              callbacks: {
-                                label: (context) => ` ${context.raw} Enrolled Students`
-                              }
+                              callbacks: { label: (context) => ` ${context.raw} Enrolled Students` }
                             }
                           },
                           scales: { 
-                            x: { 
-                              beginAtZero: true, 
-                              grid: { color: '#f1f5f9' },
-                              ticks: { precision: 0, stepSize: 1, font: { size: 11 } } 
-                            },
-                            y: {
-                              grid: { display: false },
-                              ticks: { 
-                                font: { size: 12, weight: '500' },
-                                color: '#334155',
-                                callback: function(val) {
-                                  const text = this.getLabelForValue(val);
-                                  return text.length > 28 ? text.substring(0, 26) + '...' : text;
-                                }
-                              }
-                            }
+                            x: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { precision: 0, stepSize: 1, font: { size: 11 } } },
+                            y: { grid: { display: false }, ticks: { font: { size: 12, weight: '500' }, color: '#334155' } }
                           } 
                         }}
                       />
                     </div>
                   </div>
-                </div>
-
-                {/* Cohort Insight & Quick Action Bar */}
-                <div style={{ 
-                  background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', 
-                  borderRadius: '12px', 
-                  padding: '18px 24px', 
-                  color: '#ffffff',
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  boxShadow: '0 4px 12px rgba(15, 23, 42, 0.12)'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <span style={{ fontSize: '24px' }}>🛡️</span>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '700' }}>Early Academic Intervention Recommendation</div>
-                      <div style={{ fontSize: '13px', color: '#94a3b8', marginTop: '2px' }}>
-                        {(analytics.risk_distribution?.High || 0)} students currently show high dropout risk signals based on assignment deadlines & engagement velocity.
-                      </div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => setActiveTab('alerts')}
-                    style={{ 
-                      background: '#f43f5e', 
-                      color: '#ffffff', 
-                      border: 'none', 
-                      padding: '8px 18px', 
-                      borderRadius: '8px', 
-                      fontWeight: '700', 
-                      fontSize: '13px', 
-                      cursor: 'pointer',
-                      boxShadow: '0 2px 6px rgba(244, 63, 94, 0.4)',
-                      transition: 'all 0.2s ease',
-                      whiteSpace: 'nowrap'
-                    }}
-                  >
-                    View High-Risk Alerts →
-                  </button>
                 </div>
               </>
             ) : (
@@ -1029,8 +1149,350 @@ const AdminDashboard = () => {
           </div>
         )}
 
-        <footer className="dash-footer">E-LEARNING MANAGEMENT SYSTEM — ADMIN DASHBOARD</footer>
+        {/* ------------------------------------------------------------- */}
+        {/* TAB 8: AUDIT LOG                                              */}
+        {/* ------------------------------------------------------------- */}
+        {activeTab === 'audit' && (
+          <div>
+            <div className="section-head" style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h2>Administrative Audit Log</h2>
+                <p style={{ color: '#64748b', fontSize: '14px', margin: '4px 0 0' }}>
+                  Immutable security audit trail recording course approvals, rejections, instructor provisioning, and cross-user data access.
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <select
+                  value={auditActionFilter}
+                  onChange={handleAuditFilterChange}
+                  style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '13px', background: '#fff' }}
+                >
+                  <option value="all">All Actions</option>
+                  <option value="approve_course">Course Approvals</option>
+                  <option value="reject_course">Course Rejections</option>
+                  <option value="provision_instructor">Instructor Provisioning</option>
+                  <option value="recalculate_student_risk">Risk Recalculations</option>
+                  <option value="view_student_roster">Roster Views</option>
+                </select>
+                <button className="btn btn-ghost btn-sm" onClick={() => fetchAuditLogs(auditActionFilter)} disabled={loadingAuditLogs}>
+                  {loadingAuditLogs ? 'Refreshing...' : '🔄 Refresh'}
+                </button>
+              </div>
+            </div>
+
+            {loadingAuditLogs ? (
+              <div style={{ background: '#fff', padding: '40px', borderRadius: '12px', textAlign: 'center', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '24px', marginBottom: '8px' }}>📜</div>
+                <div>Loading audit log records...</div>
+              </div>
+            ) : auditLogs.length === 0 ? (
+              <div style={{ background: '#ffffff', padding: '40px', borderRadius: '12px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>🔍</div>
+                <h3 style={{ margin: '0 0 6px', color: '#0f172a' }}>No audit records found</h3>
+                <p style={{ color: '#64748b', margin: 0, fontSize: '14px' }}>No administrative events recorded matching this filter.</p>
+              </div>
+            ) : (
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Administrator</th>
+                    <th>Action</th>
+                    <th>Target / Resource</th>
+                    <th>Context Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map(log => {
+                    const badge = getActionBadgeStyle(log.action);
+                    const ts = log.timestamp ? new Date(log.timestamp).toLocaleString() : 'N/A';
+                    return (
+                      <tr key={log._id}>
+                        <td style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                          {ts}
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: '600', color: '#0f172a', fontSize: '13px' }}>{log.admin_name || 'Administrator'}</div>
+                          <div style={{ fontSize: '11px', color: '#94a3b8' }}>{log.admin_email || String(log.admin_id || '')}</div>
+                        </td>
+                        <td>
+                          <span style={{ 
+                            fontSize: '11px', 
+                            fontWeight: '700', 
+                            padding: '3px 8px', 
+                            borderRadius: '6px', 
+                            background: badge.bg, 
+                            color: badge.color 
+                          }}>
+                            {badge.label}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '13px', color: '#334155' }}>
+                          {log.details?.title || log.details?.name || log.target_user_id || 'System Entity'}
+                        </td>
+                        <td style={{ fontSize: '12px', color: '#64748b', maxWidth: '320px' }}>
+                          {log.details?.rejection_reason && (
+                            <div style={{ color: '#b91c1c' }}>Reason: "{log.details.rejection_reason}"</div>
+                          )}
+                          {log.details?.email && (
+                            <div>Email: {log.details.email}</div>
+                          )}
+                          {log.details?.course_id && (
+                            <div>Course ID: {String(log.details.course_id)}</div>
+                          )}
+                          {log.details?.ip && (
+                            <div style={{ color: '#94a3b8' }}>IP: {log.details.ip}</div>
+                          )}
+                          {!log.details?.rejection_reason && !log.details?.email && !log.details?.course_id && !log.details?.ip && (
+                            <div>Standard operation</div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+
+        <footer className="dash-footer">E-LEARNING MANAGEMENT SYSTEM — ADMIN CONTROL CENTER</footer>
       </div>
+
+      {/* ------------------------------------------------------------- */}
+      {/* REJECT COURSE MODAL                                           */}
+      {/* ------------------------------------------------------------- */}
+      {rejectModalCourse && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.7)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '14px',
+            maxWidth: '520px',
+            width: '100%',
+            padding: '28px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+              <div>
+                <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>
+                  Reject Course Submission
+                </h3>
+                <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                  Provide constructive revision feedback for "{rejectModalCourse.title}"
+                </p>
+              </div>
+              <button 
+                onClick={handleCloseRejectModal}
+                style={{ background: 'none', border: 'none', fontSize: '18px', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleRejectCourseSubmit}>
+              <div style={{ marginBottom: '18px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '6px' }}>
+                  Rejection Reason / Required Changes <span style={{ color: '#e11d48' }}>*</span>
+                </label>
+                <textarea
+                  rows="4"
+                  required
+                  placeholder="e.g. Please update Module 2 video resources and add at least 3 practice questions to the final quiz before resubmitting."
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '14px',
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box'
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={handleCloseRejectModal}
+                  disabled={rejectSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={rejectSubmitting || !rejectionReason.trim()}
+                  style={{
+                    background: '#e11d48',
+                    color: '#ffffff',
+                    border: 'none',
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    fontWeight: '600',
+                    fontSize: '14px',
+                    cursor: (rejectSubmitting || !rejectionReason.trim()) ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {rejectSubmitting ? 'Rejecting...' : 'Confirm Rejection'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* ADD INSTRUCTOR MODAL                                          */}
+      {/* ------------------------------------------------------------- */}
+      {showAddInstructorModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(15, 23, 42, 0.7)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: '14px',
+            maxWidth: '540px',
+            width: '100%',
+            padding: '28px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
+              <div>
+                <h3 style={{ margin: '0 0 4px', fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>
+                  Provision Faculty Instructor
+                </h3>
+                <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                  Create an instructor account with course authoring and grading permissions.
+                </p>
+              </div>
+              <button 
+                onClick={() => setShowAddInstructorModal(false)}
+                style={{ background: 'none', border: 'none', fontSize: '18px', color: '#94a3b8', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {addInstructorError && (
+              <div style={{ background: '#fff1f2', color: '#e11d48', padding: '10px 14px', borderRadius: '8px', fontSize: '13px', marginBottom: '16px', border: '1px solid #fecdd3' }}>
+                {addInstructorError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateInstructorSubmit}>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                  Full Name <span style={{ color: '#e11d48' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Dr. Alan Turing"
+                  value={newInstructor.name}
+                  onChange={(e) => setNewInstructor({ ...newInstructor, name: e.target.value })}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                    Email Address <span style={{ color: '#e11d48' }}>*</span>
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="instructor@domain.com"
+                    value={newInstructor.email}
+                    onChange={(e) => setNewInstructor({ ...newInstructor, email: e.target.value })}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                    Temporary Password <span style={{ color: '#e11d48' }}>*</span>
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••••••"
+                    value={newInstructor.password}
+                    onChange={(e) => setNewInstructor({ ...newInstructor, password: e.target.value })}
+                    style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                  Phone Number (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="+1 (555) 019-2831"
+                  value={newInstructor.phone}
+                  onChange={(e) => setNewInstructor({ ...newInstructor, phone: e.target.value })}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#334155', marginBottom: '4px' }}>
+                  Academic Bio / Specialization
+                </label>
+                <textarea
+                  rows="2"
+                  placeholder="e.g. Professor of Machine Learning & Neural Networks with 10+ years teaching experience."
+                  value={newInstructor.bio}
+                  onChange={(e) => setNewInstructor({ ...newInstructor, bio: e.target.value })}
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setShowAddInstructorModal(false)}
+                  disabled={addInstructorSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-gold"
+                  disabled={addInstructorSubmitting}
+                  style={{ padding: '9px 22px' }}
+                >
+                  {addInstructorSubmitting ? 'Provisioning...' : 'Provision Instructor'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <Toast message={toastMessage} />
     </div>
   );

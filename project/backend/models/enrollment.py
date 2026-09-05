@@ -12,6 +12,11 @@ class Enrollment:
         enrollment_data['progress'] = 0
         result = self.collection.insert_one(enrollment_data)
         return str(result.inserted_id)
+
+    def find_by_id(self, enrollment_id):
+        if not ObjectId.is_valid(enrollment_id):
+            return self.collection.find_one({'_id': str(enrollment_id)})
+        return self.collection.find_one({'_id': ObjectId(enrollment_id)})
     
     def find_by_student_and_course(self, student_id, course_id):
         return self.collection.find_one({
@@ -19,7 +24,10 @@ class Enrollment:
             'course_id': ObjectId(course_id)
         })
     
-    def get_student_enrollments(self, student_id):
+    def get_student_enrollments(self, student_id, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, student_id)
+
         s_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
         enrollments = list(self.collection.find({
             '$or': [

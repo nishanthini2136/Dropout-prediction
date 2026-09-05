@@ -28,7 +28,10 @@ class RoadmapModel:
             result = self.collection.insert_one(roadmap)
             return str(result.inserted_id)
 
-    def get_roadmap(self, student_id: str, week_num: int, course_id: str = None):
+    def get_roadmap(self, student_id: str, week_num: int, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, student_id, course_id)
+            
         student_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
         query = {'student_id': student_match, 'week_num': week_num}
         if course_id:
@@ -36,7 +39,10 @@ class RoadmapModel:
             query['course_id'] = course_match
         return self.collection.find_one(query)
         
-    def update_task_status(self, student_id: str, week_num: int, task_index: int, new_status: str, course_id: str = None):
+    def update_task_status(self, student_id: str, week_num: int, task_index: int, new_status: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, student_id, course_id)
+
         roadmap = self.get_roadmap(student_id, week_num, course_id)
         if roadmap and task_index < len(roadmap['tasks']):
             roadmap['tasks'][task_index]['status'] = new_status
@@ -47,7 +53,10 @@ class RoadmapModel:
             return True
         return False
 
-    def generate_personalized_roadmap(self, student_id: str, course_id: str = None, week_num: int = 1):
+    def generate_personalized_roadmap(self, student_id: str, course_id: str = None, week_num: int = 1, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, student_id, course_id)
+
         s_id = ObjectId(student_id) if ObjectId.is_valid(student_id) else str(student_id)
         s_match = {'$in': [s_id, ObjectId(s_id)]} if ObjectId.is_valid(student_id) else str(student_id)
         

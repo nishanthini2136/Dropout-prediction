@@ -165,7 +165,10 @@ class ProgressModel:
             record = self.collection.find_one({'user_id': str(user_id), 'module_id': str(module_id)})
         return bool(record and record.get('quiz_completed'))
 
-    def get_user_module_progress(self, user_id: str, module_id: str, course_id: str = None):
+    def get_user_module_progress(self, user_id: str, module_id: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, user_id, course_id)
+
         filter_query = {'user_id': str(user_id), 'module_id': str(module_id)}
         if course_id:
             filter_query['course_id'] = str(course_id)
@@ -180,7 +183,10 @@ class ProgressModel:
             'percentage': record.get('percentage', 0)
         }
 
-    def get_all_user_progress(self, user_id: str, course_id: str = None):
+    def get_all_user_progress(self, user_id: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, user_id, course_id)
+
         query = {'user_id': str(user_id)}
         if course_id:
             query['course_id'] = str(course_id)

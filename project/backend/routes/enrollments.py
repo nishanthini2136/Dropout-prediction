@@ -5,8 +5,33 @@ from models.user import User
 from utils.auth import token_required, student_required, admin_required
 from utils.notifier import stats_notifier
 from bson import ObjectId
+from datetime import datetime
 
 enrollments_bp = Blueprint('enrollments', __name__)
+
+def _serialize_doc(doc):
+    """Helper to convert ObjectIds and datetime objects to JSON-serializable strings/dicts."""
+    if doc is None:
+        return None
+    if isinstance(doc, list):
+        return [_serialize_doc(item) for item in doc]
+    if isinstance(doc, dict):
+        res = {}
+        for k, v in doc.items():
+            if isinstance(v, ObjectId):
+                res[k] = str(v)
+            elif isinstance(v, datetime):
+                res[k] = v.isoformat()
+            elif isinstance(v, (dict, list)):
+                res[k] = _serialize_doc(v)
+            else:
+                res[k] = v
+        return res
+    if isinstance(doc, ObjectId):
+        return str(doc)
+    if isinstance(doc, datetime):
+        return doc.isoformat()
+    return doc
 
 @enrollments_bp.route('/api/enrollments', methods=['POST'])
 @student_required
@@ -90,8 +115,7 @@ def get_my_enrollments():
         courses_map = {}
         for c in courses:
             cid_str = str(c['_id'])
-            c['_id'] = cid_str
-            courses_map[cid_str] = c
+            courses_map[cid_str] = _serialize_doc(c)
 
         # Batch query 2: Fetch all predictions for this student in 1 query
         s_match = {'$in': [ObjectId(user_id), str(user_id)]} if ObjectId.is_valid(str(user_id)) else str(user_id)
@@ -107,33 +131,36 @@ def get_my_enrollments():
             c_id_str = str(c_id_raw)
             course = courses_map.get(c_id_str)
             if course:
-                enrollment['_id'] = str(enrollment['_id'])
-                enrollment['course_id'] = course
-                enrollment['student_id'] = str(enrollment.get('student_id', user_id))
+                serialized_enrollment = _serialize_doc(enrollment)
+                serialized_enrollment['_id'] = str(enrollment['_id'])
+                serialized_enrollment['course_id'] = course
+                serialized_enrollment['course'] = course  # Support both .course and .course_id for compatibility
+                serialized_enrollment['student_id'] = str(enrollment.get('student_id', user_id))
                 
                 # Check for 100% completed course
                 is_completed = enrollment.get('progress', 0) >= 100 or enrollment.get('status') == 'completed'
-                enrollment['is_completed'] = is_completed
+                serialized_enrollment['is_completed'] = is_completed
 
                 pred = preds_map.get(c_id_str) or default_pred
                 if is_completed:
-                    enrollment['risk_badge'] = 'Low'
-                    enrollment['risk_score'] = 0.0
+                    serialized_enrollment['risk_badge'] = 'Low'
+                    serialized_enrollment['risk_score'] = 0.0
                 elif pred:
-                    enrollment['risk_badge'] = pred.get('risk_level', 'Medium')
+                    serialized_enrollment['risk_badge'] = pred.get('risk_level', 'Medium')
                     score_val = pred.get('risk_score')
                     if score_val is None:
                         score_val = pred.get('risk_probability', 0.5) * 100
-                    enrollment['risk_score'] = float(score_val)
+                    serialized_enrollment['risk_score'] = float(score_val)
                 else:
-                    enrollment['risk_badge'] = 'Medium'
-                    enrollment['risk_score'] = 50.0
+                    serialized_enrollment['risk_badge'] = 'Medium'
+                    serialized_enrollment['risk_score'] = 50.0
                     
-                my_courses.append(enrollment)
+                my_courses.append(serialized_enrollment)
         
         return jsonify(my_courses), 200
         
     except Exception as e:
+        print("Error in get_my_enrollments:", e)
         return jsonify({'error': str(e)}), 500
 
 @enrollments_bp.route('/api/enrollments/<enrollment_id>/progress', methods=['PUT'])
@@ -173,7 +200,7 @@ def update_lesson_progress(enrollment_id):
         enrollment_model = Enrollment()
         course_model = Course()
         
-        enrollment = enrollment_model.collection.find_one({'_id': ObjectId(enrollment_id)})
+        enrollment = enrollment_model.find_by_id(enrollment_id)
         if not enrollment:
             return jsonify({'error': 'Enrollment not found'}), 404
             
@@ -211,7 +238,7 @@ def update_module_progress(enrollment_id):
         enrollment_model = Enrollment()
         course_model = Course()
         
-        enrollment = enrollment_model.collection.find_one({'_id': ObjectId(enrollment_id)})
+        enrollment = enrollment_model.find_by_id(enrollment_id)
         if not enrollment:
             return jsonify({'error': 'Enrollment not found'}), 404
         
@@ -221,7 +248,7 @@ def update_module_progress(enrollment_id):
         
         if success:
             # Return the updated progress
-            updated_enrollment = enrollment_model.collection.find_one({'_id': ObjectId(enrollment_id)})
+            updated_enrollment = enrollment_model.find_by_id(enrollment_id)
             return jsonify({
                 'message': 'Module progress updated successfully',
                 'progress': updated_enrollment.get('progress', 0)

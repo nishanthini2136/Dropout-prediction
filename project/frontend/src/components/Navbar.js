@@ -12,6 +12,8 @@ const Navbar = () => {
   const handleBrandClick = () => {
     if (user?.role === 'admin') {
       navigate('/admin/dashboard');
+    } else if (user?.role === 'instructor') {
+      navigate('/instructor/dashboard');
     } else if (user?.role === 'student') {
       navigate('/student/dashboard');
     } else {
@@ -25,6 +27,8 @@ const Navbar = () => {
     } else {
       if (user?.role === 'admin') {
         navigate('/admin/dashboard');
+      } else if (user?.role === 'instructor') {
+        navigate('/instructor/dashboard');
       } else if (user?.role === 'student') {
         navigate('/student/dashboard');
       } else {
@@ -36,6 +40,34 @@ const Navbar = () => {
   const handleLogout = () => {
     logout();
     navigate('/');
+  };
+
+  const getRoleBadgeStyle = (role) => {
+    if (role === 'admin') {
+      return {
+        border: '1px solid #D4AF37',
+        color: '#D4AF37',
+        background: 'rgba(212, 175, 55, 0.15)'
+      };
+    } else if (role === 'instructor') {
+      return {
+        border: '1px solid rgba(168, 85, 247, 0.5)',
+        color: '#c084fc',
+        background: 'rgba(168, 85, 247, 0.15)'
+      };
+    } else {
+      return {
+        border: '1px solid rgba(47, 191, 159, 0.4)',
+        color: '#2fbfbf',
+        background: 'rgba(47, 191, 159, 0.1)'
+      };
+    }
+  };
+
+  const getRoleLabel = (role) => {
+    if (role === 'admin') return 'Administrator';
+    if (role === 'instructor') return 'Instructor';
+    return 'Student';
   };
 
   return (
@@ -130,11 +162,11 @@ const Navbar = () => {
                 textTransform: 'uppercase',
                 padding: '4px 12px',
                 borderRadius: '20px',
-                border: user.role === 'admin' ? '1px solid #D4AF37' : '1px solid rgba(47, 191, 159, 0.4)',
-                color: user.role === 'admin' ? '#D4AF37' : '#2fbfbf',
-                background: user.role === 'admin' ? 'rgba(212, 175, 55, 0.15)' : 'transparent'
+                fontWeight: '600',
+                letterSpacing: '0.5px',
+                ...getRoleBadgeStyle(user.role)
               }}>
-                {user.role === 'admin' ? 'Administrator' : 'Student'}
+                {getRoleLabel(user.role)}
               </span>
 
               {/* Avatar */}
@@ -174,7 +206,7 @@ const Navbar = () => {
           ) : (
             <>
               <button 
-                onClick={() => navigate('/student/login')} 
+                onClick={() => navigate('/login')} 
                 style={{ background: 'transparent', border: 'none', color: '#ffffff', fontWeight: '500', fontSize: '14px', cursor: 'pointer', padding: '6px 12px' }}
               >
                 Login

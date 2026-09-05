@@ -24,7 +24,8 @@ const MyCourses = () => {
       const response = await axios.get('/api/enrollments/my-courses', {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setEnrollments(response.data.enrollments);
+      const data = Array.isArray(response.data) ? response.data : (response.data?.enrollments || []);
+      setEnrollments(data);
     } catch (error) {
       if (error.response?.status === 401) {
         logout();
@@ -103,60 +104,76 @@ const MyCourses = () => {
         </Alert>
       ) : (
         <Row>
-          {enrollments.map((item) => (
-            <Col key={item.enrollment._id} md={4} className="mb-4">
-              <Card className="h-100">
-                {item.course.thumbnail && (
-                  <Card.Img
-                    variant="top"
-                    src={item.course.thumbnail}
-                    alt={item.course.title}
-                    style={{ height: '200px', objectFit: 'cover' }}
-                  />
-                )}
-                <Card.Body>
-                  <Card.Title>{item.course.title}</Card.Title>
-                  <Card.Subtitle className="mb-2 text-muted">
-                    {item.course.instructor}
-                  </Card.Subtitle>
-                  <Card.Text className="text-truncate" style={{ maxHeight: '60px' }}>
-                    {item.course.description}
-                  </Card.Text>
-                  
-                  <div className="mb-3">
-                    <div className="d-flex justify-content-between mb-1">
-                      <span>Progress</span>
-                      <span>{item.enrollment.progress}%</span>
-                    </div>
-                    <ProgressBar 
-                      now={item.enrollment.progress} 
-                      variant={getProgressVariant(item.enrollment.progress)}
+          {enrollments.map((item) => {
+            const enroll = item.enrollment || item;
+            const course = (typeof item.course_id === 'object' && item.course_id !== null)
+              ? item.course_id
+              : (item.course || {});
+            const enrollId = enroll._id || item._id;
+            const progress = enroll.progress || 0;
+            const title = course.title || 'Course';
+            const instructor = course.instructor || course.created_by_name || '';
+            const description = course.description || '';
+            const thumbnail = course.thumbnail ? (course.thumbnail.startsWith('http') ? course.thumbnail : `http://localhost:5000${course.thumbnail}`) : null;
+            const enrolledAt = enroll.enrolled_at ? new Date(enroll.enrolled_at).toLocaleDateString() : 'Active';
+
+            return (
+              <Col key={enrollId} md={4} className="mb-4">
+                <Card className="h-100">
+                  {thumbnail && (
+                    <Card.Img
+                      variant="top"
+                      src={thumbnail}
+                      alt={title}
+                      style={{ height: '200px', objectFit: 'cover' }}
                     />
-                  </div>
-                  
-                  <Card.Text className="text-muted small">
-                    Enrolled: {new Date(item.enrollment.enrolled_at).toLocaleDateString()}
-                  </Card.Text>
-                </Card.Body>
-                <Card.Footer>
-                  <Button
-                    variant="outline-primary"
-                    className="w-100 mb-2"
-                    onClick={() => openProgressModal(item.enrollment)}
-                  >
-                    Update Progress
-                  </Button>
-                  <Button
-                    variant="outline-danger"
-                    className="w-100"
-                    onClick={() => handleUnenroll(item.enrollment._id)}
-                  >
-                    Unenroll
-                  </Button>
+                  )}
+                  <Card.Body>
+                    <Card.Title>{title}</Card.Title>
+                    {instructor && (
+                      <Card.Subtitle className="mb-2 text-muted">
+                        {instructor}
+                      </Card.Subtitle>
+                    )}
+                    <Card.Text className="text-truncate" style={{ maxHeight: '60px' }}>
+                      {description}
+                    </Card.Text>
+                    
+                    <div className="mb-3">
+                      <div className="d-flex justify-content-between mb-1">
+                        <span>Progress</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <ProgressBar 
+                        now={progress} 
+                        variant={getProgressVariant(progress)}
+                      />
+                    </div>
+                    
+                    <Card.Text className="text-muted small">
+                      Enrolled: {enrolledAt}
+                    </Card.Text>
+                  </Card.Body>
+                  <Card.Footer>
+                    <Button
+                      variant="outline-primary"
+                      className="w-100 mb-2"
+                      onClick={() => openProgressModal(enroll)}
+                    >
+                      Update Progress
+                    </Button>
+                    <Button
+                      variant="outline-danger"
+                      className="w-100"
+                      onClick={() => handleUnenroll(enrollId)}
+                    >
+                      Unenroll
+                    </Button>
                 </Card.Footer>
               </Card>
             </Col>
-          ))}
+            );
+          })}
         </Row>
       )}
 

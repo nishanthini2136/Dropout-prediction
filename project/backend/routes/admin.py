@@ -1,11 +1,35 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
+from datetime import datetime
+from bson import ObjectId
+from config.database import db
 from models.user import User
 from models.course import Course
 from models.enrollment import Enrollment
-from utils.auth import admin_required
+from models.audit_log import AuditLog
+from utils.auth import admin_required, AuthUtils
+from middleware.rbac import requires_role
 from utils.notifier import stats_notifier
 
 admin_bp = Blueprint('admin', __name__)
+
+def _serialize_admin_doc(doc):
+    if not doc:
+        return doc
+    if isinstance(doc, list):
+        return [_serialize_admin_doc(item) for item in doc]
+    if isinstance(doc, dict):
+        res = {}
+        for k, v in doc.items():
+            if isinstance(v, ObjectId):
+                res[k] = str(v)
+            elif isinstance(v, datetime):
+                res[k] = v.isoformat()
+            elif isinstance(v, (dict, list)):
+                res[k] = _serialize_admin_doc(v)
+            else:
+                res[k] = v
+        return res
+    return doc
 
 @admin_bp.route('/api/admin/dashboard', methods=['GET'])
 @admin_required
@@ -92,6 +116,14 @@ def get_students():
     try:
         from config.database import db
         from bson import ObjectId
+        
+        # Log administrative cross-user data access
+        AuditLog().log_admin_access(
+            admin_id=getattr(request, 'current_user_id', 'admin'),
+            action='view_student_roster',
+            details={'ip': request.remote_addr}
+        )
+
         user_model = User()
         students = user_model.get_all_students()
         
@@ -192,6 +224,14 @@ def recalculate_risk():
         
         if target_student_id:
             s_id = str(target_student_id)
+            
+            # Log admin cross-user modification
+            AuditLog().log_admin_access(
+                admin_id=getattr(request, 'current_user_id', 'admin'),
+                action='recalculate_student_risk',
+                target_user_id=s_id
+            )
+
             # Recalculate risk for this specific student
             risk_engine.predict_risk(s_id)
             
@@ -313,4 +353,277 @@ def get_analytics():
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@admin_bp.route('/api/admin/courses/pending', methods=['GET'])
+@requires_role('admin')
+def get_pending_courses():
+    """
+    List all instructor-submitted courses awaiting admin approval.
+    """
+    try:
+        course_model = Course()
+        pending_courses = course_model.get_pending_review_courses()
+        
+        # Populate instructor info for each pending course
+        database = db.get_db()
+        inst_ids = []
+        for c in pending_courses:
+            if c.get('instructor_id'):
+                inst_ids.append(ObjectId(c['instructor_id']) if ObjectId.is_valid(str(c['instructor_id'])) else str(c['instructor_id']))
+                
+        instructors = list(database['users'].find({'_id': {'$in': inst_ids}}, {'name': 1, 'email': 1}))
+        inst_map = {str(i['_id']): i for i in instructors}
+
+        for c in pending_courses:
+            inst_id_str = str(c.get('instructor_id') or '')
+            inst_info = inst_map.get(inst_id_str, {})
+            c['instructor_name'] = inst_info.get('name', 'Unknown Instructor')
+            c['instructor_email'] = inst_info.get('email', '')
+
+        return jsonify({
+            'courses': _serialize_admin_doc(pending_courses),
+            'total_pending': len(pending_courses)
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to retrieve pending courses: {str(e)}'}), 500
+
+
+@admin_bp.route('/api/admin/courses/<id>/approve', methods=['POST'])
+@requires_role('admin')
+def approve_course(id):
+    """
+    Approve an instructor course (transitions status from pending_review -> published).
+    """
+    try:
+        course_model = Course()
+        course = course_model.find_by_id(id)
+        
+        if not course:
+            return jsonify({'error': 'Course not found'}), 404
+
+        current_status = course.get('status', 'draft')
+        if current_status != 'pending_review':
+            return jsonify({
+                'error': f"Only courses in 'pending_review' status can be approved. Current status is '{current_status}'."
+            }), 400
+
+        admin_id = request.current_user_id
+        success = course_model.update_status(
+            course_id=id,
+            status='published',
+            reviewed_by=admin_id,
+            rejection_reason=None
+        )
+
+        if not success:
+            return jsonify({'error': 'Failed to approve course'}), 500
+
+        # Ensure course is set active upon publishing
+        course_model.collection.update_one(
+            {'_id': ObjectId(id) if ObjectId.is_valid(id) else id},
+            {'$set': {'is_active': True}}
+        )
+
+        # Log administrative approval in audit_logs
+        AuditLog().log_admin_access(
+            admin_id=admin_id,
+            action='approve_course',
+            target_user_id=course.get('instructor_id'),
+            details={'course_id': str(id), 'title': course.get('title')}
+        )
+
+        updated_course = course_model.find_by_id(id)
+        return jsonify({
+            'message': 'Course approved and published successfully',
+            'course': _serialize_admin_doc(updated_course)
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to approve course: {str(e)}'}), 500
+
+
+@admin_bp.route('/api/admin/courses/<id>/reject', methods=['POST'])
+@requires_role('admin')
+def reject_course(id):
+    """
+    Reject an instructor course with mandatory feedback rationale.
+    """
+    try:
+        data = request.get_json() or {}
+        rejection_reason = data.get('rejection_reason', '').strip()
+        
+        if not rejection_reason:
+            return jsonify({'error': 'Rejection reason is required when rejecting a course.'}), 400
+
+        course_model = Course()
+        course = course_model.find_by_id(id)
+        
+        if not course:
+            return jsonify({'error': 'Course not found'}), 404
+
+        admin_id = request.current_user_id
+        success = course_model.update_status(
+            course_id=id,
+            status='rejected',
+            reviewed_by=admin_id,
+            rejection_reason=rejection_reason
+        )
+
+        if not success:
+            return jsonify({'error': 'Failed to reject course'}), 500
+
+        # Log administrative rejection in audit_logs
+        AuditLog().log_admin_access(
+            admin_id=admin_id,
+            action='reject_course',
+            target_user_id=course.get('instructor_id'),
+            details={'course_id': str(id), 'title': course.get('title'), 'rejection_reason': rejection_reason}
+        )
+
+        updated_course = course_model.find_by_id(id)
+        return jsonify({
+            'message': 'Course rejected successfully with feedback',
+            'course': _serialize_admin_doc(updated_course)
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to reject course: {str(e)}'}), 500
+
+
+@admin_bp.route('/api/admin/instructors', methods=['POST'])
+@requires_role('admin')
+def create_instructor():
+    """
+    Provision a new instructor account (Option B: Admin Creation).
+    """
+    try:
+        data = request.get_json() or {}
+        
+        required_fields = ['name', 'email', 'password']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({'error': f'{field} is required'}), 400
+
+        user_model = User()
+        existing = user_model.find_by_email(data['email'])
+        if existing:
+            return jsonify({'error': 'User with this email already exists'}), 400
+
+        hashed_password = AuthUtils.hash_password(data['password'])
+        instructor_data = {
+            'name': data['name'].strip(),
+            'email': data['email'].strip().lower(),
+            'password': hashed_password,
+            'role': 'instructor',
+            'phone': data.get('phone', '').strip(),
+            'bio': data.get('bio', '').strip(),
+            'is_active': True
+        }
+
+        user_id = user_model.create_user(instructor_data)
+        created_user = user_model.find_by_id(user_id)
+
+        # Log administrator provisioning action
+        AuditLog().log_admin_access(
+            admin_id=getattr(request, 'current_user_id', 'admin'),
+            action='provision_instructor',
+            target_user_id=user_id,
+            details={'email': instructor_data['email'], 'name': instructor_data['name']}
+        )
+
+        if 'password' in created_user:
+            del created_user['password']
+
+        return jsonify({
+            'message': 'Instructor provisioned successfully',
+            'instructor': _serialize_admin_doc(created_user)
+        }), 201
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to create instructor: {str(e)}'}), 500
+
+
+@admin_bp.route('/api/admin/instructors', methods=['GET'])
+@requires_role('admin')
+def get_instructors():
+    """
+    List all instructors and their course metrics.
+    """
+    try:
+        user_model = User()
+        instructors = user_model.get_all_instructors()
+        
+        database = db.get_db()
+        for inst in instructors:
+            inst_id = inst['_id']
+            # Count courses by this instructor
+            inst_query = {
+                '$or': [
+                    {'instructor_id': inst_id},
+                    {'instructor_id': str(inst_id)},
+                    {'instructor_id': ObjectId(str(inst_id)) if ObjectId.is_valid(str(inst_id)) else str(inst_id)}
+                ]
+            }
+            inst['course_count'] = database['courses'].count_documents(inst_query)
+            
+            # Find all courses by this instructor to count total enrollments
+            inst_courses = list(database['courses'].find(inst_query, {'_id': 1}))
+            c_ids = [c['_id'] for c in inst_courses]
+            
+            enroll_query = {'course_id': {'$in': c_ids + [str(cid) for cid in c_ids]}}
+            inst['total_students'] = database['enrollments'].count_documents(enroll_query)
+            
+            if 'password' in inst:
+                del inst['password']
+
+        return jsonify({
+            'instructors': _serialize_admin_doc(instructors),
+            'total': len(instructors)
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to list instructors: {str(e)}'}), 500
+
+
+@admin_bp.route('/api/admin/audit-logs', methods=['GET'])
+@requires_role('admin')
+def get_audit_logs():
+    """
+    Retrieve system audit log entries for administrative oversight.
+    """
+    try:
+        action = request.args.get('action')
+        limit = int(request.args.get('limit', 100))
+        skip = int(request.args.get('skip', 0))
+
+        audit_model = AuditLog()
+        logs = audit_model.get_logs(limit=limit, skip=skip, action=action)
+
+        # Batch lookup admin users for names/emails
+        database = db.get_db()
+        admin_ids = []
+        for l in logs:
+            if l.get('admin_id'):
+                admin_ids.append(ObjectId(l['admin_id']) if ObjectId.is_valid(str(l['admin_id'])) else str(l['admin_id']))
+
+        admins = list(database['users'].find({'_id': {'$in': admin_ids}}, {'name': 1, 'email': 1}))
+        admin_map = {str(a['_id']): a for a in admins}
+
+        for l in logs:
+            admin_id_str = str(l.get('admin_id') or '')
+            admin_info = admin_map.get(admin_id_str, {})
+            l['admin_name'] = admin_info.get('name', 'Administrator')
+            l['admin_email'] = admin_info.get('email', '')
+
+        return jsonify({
+            'logs': _serialize_admin_doc(logs),
+            'total': len(logs)
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to retrieve audit logs: {str(e)}'}), 500
+
+
 

@@ -54,19 +54,25 @@ const Landing = () => {
         </div>
       </div>
 
-      {/* Roles Grid — both cards navigate to their respective login pages only, no credential bypass */}
-      <div className="role-grid">
-        <div className="role-card" onClick={() => navigate('/admin/login')}>
-          <div className="tag">Administration</div>
-          <h3>Administrator</h3>
-          <p>Create and manage courses, track enrollments, and monitor student progress. Full control over the learning platform.</p>
-          <div className="go">Sign in as Admin <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
-        </div>
-        <div className="role-card" onClick={() => navigate('/student/login')}>
+      {/* Roles Grid */}
+      <div className="role-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px', maxWidth: '1200px', margin: '40px auto', padding: '0 20px' }}>
+        <div className="role-card" onClick={() => navigate('/login')}>
           <div className="tag">Student Portal</div>
           <h3>Student</h3>
-          <p>Browse available courses, enroll in classes, track your learning progress, and manage your academic journey.</p>
+          <p>Browse available courses, enroll in classes, track your learning progress with predictive AI risk alerts.</p>
           <div className="go">Sign in as Student <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        </div>
+        <div className="role-card" onClick={() => navigate('/login')}>
+          <div className="tag" style={{ color: '#a855f7' }}>Instructor Studio</div>
+          <h3>Instructor</h3>
+          <p>Create rich courses, submit for review, track enrolled student performance, evaluate submissions & view earnings.</p>
+          <div className="go">Sign in as Instructor <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
+        </div>
+        <div className="role-card" onClick={() => navigate('/login')}>
+          <div className="tag" style={{ color: '#D4AF37' }}>Administration</div>
+          <h3>Administrator</h3>
+          <p>Review and publish courses, provision instructor accounts, and audit all cross-user academic operations.</p>
+          <div className="go">Sign in as Admin <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></div>
         </div>
       </div>
 

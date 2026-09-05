@@ -3,10 +3,64 @@ import axios from 'axios';
 
 const AuthContext = createContext(null);
 
+export const parseJwt = (token) => {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [loading, setLoading] = useState(true);
+
+  // Global Axios Interceptors setup
+  useEffect(() => {
+    // 1. Request Interceptor: Auto-attach Bearer token
+    const reqInterceptor = axios.interceptors.request.use(
+      (config) => {
+        const activeToken = localStorage.getItem('token');
+        if (activeToken && !config.headers.Authorization) {
+          config.headers.Authorization = `Bearer ${activeToken}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    // 2. Response Interceptor: Catch 401 / expired token and clear session
+    const resInterceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response && error.response.status === 401) {
+          // Token expired or invalid
+          console.warn('[Auth] Received 401 Unauthorized. Clearing expired session.');
+          localStorage.removeItem('token');
+          setToken(null);
+          setUser(null);
+          if (!window.location.pathname.includes('/login') && !window.location.pathname.includes('/register') && window.location.pathname !== '/') {
+            window.location.href = '/login';
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    return () => {
+      axios.interceptors.request.eject(reqInterceptor);
+      axios.interceptors.response.eject(resInterceptor);
+    };
+  }, []);
 
   useEffect(() => {
     if (token) {
@@ -29,18 +83,16 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email, password, role) => {
+  const login = async (email, password) => {
     try {
       const response = await axios.post('/api/auth/login', { email, password });
-      const { token, user } = response.data;
+      const { token: receivedToken, user: receivedUser } = response.data;
       
-      if (user.role !== role) {
-        throw new Error(`This account is registered as a ${user.role}, not as ${role}`);
-      }
+      localStorage.setItem('token', receivedToken);
+      setToken(receivedToken);
+      setUser(receivedUser);
       
-      localStorage.setItem('token', token);
-      setToken(token);
-      setUser(user);
+      return { token: receivedToken, user: receivedUser, role: receivedUser?.role };
     } catch (error) {
       throw new Error(error.response?.data?.error || error.message);
     }
@@ -49,7 +101,7 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     try {
       const response = await axios.post('/api/auth/register', userData);
-      return { success: true };
+      return { success: true, data: response.data };
     } catch (error) {
       return { 
         success: false, 
@@ -71,7 +123,8 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
-    isAuthenticated: !!token
+    isAuthenticated: !!token,
+    role: user?.role || (token ? parseJwt(token)?.role : null)
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

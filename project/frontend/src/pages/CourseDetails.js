@@ -201,22 +201,42 @@ const CourseDetails = () => {
   const [autoNavCountdown, setAutoNavCountdown] = useState(0);
   const [isAutoNavigating, setIsAutoNavigating] = useState(false);
 
+  const [assignmentSubmissions, setAssignmentSubmissions] = useState({});
+  const [assignmentInputs, setAssignmentInputs] = useState({});
+  const [submittingAssignment, setSubmittingAssignment] = useState({});
+
   useEffect(() => {
     fetchCourseDetails();
   }, [id]);
 
   // Synchronize active module quiz loading when enrollment, progress or activeModule changes
   useEffect(() => {
-    if (isEnrolled && activeModule) {
-      const allDone = areAllModuleVideosCompleted(activeModule) || videoWatchedModuleIds.some(id => getModuleIdVariants(activeModule).includes(id));
+    const isStaffPreview = user?.role === 'admin' || user?.role === 'instructor' || user?.role === 'faculty';
+    if ((isEnrolled || isStaffPreview) && activeModule) {
+      const allDone = isStaffPreview || areAllModuleVideosCompleted(activeModule) || videoWatchedModuleIds.some(id => getModuleIdVariants(activeModule).includes(id));
       if (allDone) {
-        fetchQuiz(activeModule._id || activeModule.id);
+        if (activeModule.quizzes && activeModule.quizzes.length > 0) {
+          setQuizData(Array.isArray(activeModule.quizzes) ? activeModule.quizzes : [activeModule.quizzes]);
+          setQuizError('');
+        } else {
+          fetchQuiz(activeModule._id || activeModule.id);
+        }
       } else {
         setQuizData(null);
         setQuizError('');
       }
+
+      // Fetch student submissions for any assignments in this module
+      if (Array.isArray(activeModule.assignments)) {
+        activeModule.assignments.forEach(a => {
+          const key = a.assignment_id || a.id;
+          if (key && !assignmentSubmissions[key]) {
+            fetchMyAssignmentSubmission(key);
+          }
+        });
+      }
     }
-  }, [activeModule, isEnrolled, enrollment, videoWatchedModuleIds, moduleWatchedLessons]);
+  }, [activeModule, isEnrolled, enrollment, videoWatchedModuleIds, moduleWatchedLessons, user]);
 
   const probeVideoDuration = (videoUrl, key) => {
     if (!videoUrl || videoUrl === '#' || videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) return;
@@ -434,14 +454,20 @@ const CourseDetails = () => {
   // Fetch quiz for a module after all videos in the module are completed
   const fetchQuiz = async (moduleId) => {
     try {
+      const token = localStorage.getItem('token');
       const response = await axios.get(`http://localhost:5000/api/student/module/${moduleId}/quiz?course_id=${id}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
       });
       console.log('Quiz fetched:', response.data);
       setQuizData(Array.isArray(response.data) ? response.data : [response.data]);
       setQuizError('');
     } catch (error) {
       console.error('Error fetching quiz:', error);
+      if (activeModule?.quizzes && activeModule.quizzes.length > 0) {
+        setQuizData(Array.isArray(activeModule.quizzes) ? activeModule.quizzes : [activeModule.quizzes]);
+        setQuizError('');
+        return;
+      }
       if (error.response && error.response.status === 403) {
         setQuizError('Quiz is locked until all videos in this module are completed');
       } else if (error.response && error.response.status === 404) {
@@ -449,6 +475,62 @@ const CourseDetails = () => {
       } else {
         setQuizError('Failed to load quiz');
       }
+    }
+  };
+
+  const fetchMyAssignmentSubmission = async (assignmentId) => {
+    if (!assignmentId || !localStorage.getItem('token')) return;
+    try {
+      const res = await axios.get(`http://localhost:5000/api/assignments/${assignmentId}/my-submission`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.data && res.data.submission) {
+        setAssignmentSubmissions(prev => ({
+          ...prev,
+          [assignmentId]: res.data.submission
+        }));
+      }
+    } catch (e) {
+      console.error('Error fetching assignment submission:', e);
+    }
+  };
+
+  const handleAssignmentSubmit = async (assignment) => {
+    const assignKey = assignment.assignment_id || assignment.id;
+    const input = assignmentInputs[assignKey] || {};
+    const textContent = input.text || '';
+    const filePath = input.filePath || '';
+
+    if (!textContent.trim() && !filePath.trim()) {
+      setToastMessage('Please enter your solution or repository/document link before submitting.');
+      return;
+    }
+
+    setSubmittingAssignment(prev => ({ ...prev, [assignKey]: true }));
+    try {
+      await axios.post(`http://localhost:5000/api/assignments/${assignKey}/submit`, {
+        course_id: id,
+        text_content: textContent,
+        file_path: filePath
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+
+      setToastMessage('✓ Assignment submitted successfully!');
+      setAssignmentSubmissions(prev => ({
+        ...prev,
+        [assignKey]: {
+          status: 'Submitted',
+          text_content: textContent,
+          file_path: filePath,
+          submitted_at: new Date().toISOString()
+        }
+      }));
+    } catch (err) {
+      console.error('Error submitting assignment:', err);
+      setToastMessage('Failed to submit assignment. Please try again.');
+    } finally {
+      setSubmittingAssignment(prev => ({ ...prev, [assignKey]: false }));
     }
   };
 
@@ -902,7 +984,49 @@ const CourseDetails = () => {
             </div>
             
             <div style={{ minWidth: '250px', maxWidth: '300px' }}>
-              {isEnrolled ? (
+              {user?.role === 'admin' ? (
+                <div style={{ 
+                  padding: '20px', 
+                  backgroundColor: '#EFF6FF', 
+                  borderRadius: '12px',
+                  border: '1.5px solid #3B82F6'
+                }}>
+                  <div style={{ color: '#1E40AF', fontWeight: '700', marginBottom: '6px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>👁️</span> Admin Review Preview
+                  </div>
+                  <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#475569', lineHeight: '1.4' }}>
+                    Full review mode enabled. You can inspect all video lectures, syllabus materials, and quizzes without enrollment.
+                  </p>
+                  <button 
+                    className="btn btn-gold btn-sm"
+                    style={{ width: '100%', fontSize: '13px' }}
+                    onClick={() => navigate('/admin/dashboard')}
+                  >
+                    ← Back to Admin Control Center
+                  </button>
+                </div>
+              ) : user?.role === 'instructor' ? (
+                <div style={{ 
+                  padding: '20px', 
+                  backgroundColor: '#F5F3FF', 
+                  borderRadius: '12px',
+                  border: '1.5px solid #8B5CF6'
+                }}>
+                  <div style={{ color: '#6D28D9', fontWeight: '700', marginBottom: '6px', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>👁️</span> Faculty Preview Mode
+                  </div>
+                  <p style={{ margin: '0 0 14px 0', fontSize: '12px', color: '#475569', lineHeight: '1.4' }}>
+                    Curriculum preview enabled. You can inspect video lectures and syllabus content.
+                  </p>
+                  <button 
+                    className="btn btn-gold btn-sm"
+                    style={{ width: '100%', fontSize: '13px' }}
+                    onClick={() => navigate('/instructor/dashboard')}
+                  >
+                    ← Back to Instructor Studio
+                  </button>
+                </div>
+              ) : isEnrolled ? (
                 <div style={{ 
                   padding: '24px', 
                   backgroundColor: '#ECFDF5', 
@@ -930,7 +1054,7 @@ const CourseDetails = () => {
                   {enrolling ? 'Enrolling...' : 'Enroll Now'}
                 </button>
               )}
-              {!course.is_active && (
+              {!course.is_active && user?.role !== 'admin' && user?.role !== 'instructor' && (
                 <div style={{ 
                   marginTop: '12px', 
                   padding: '12px 16px', 
@@ -981,7 +1105,7 @@ const CourseDetails = () => {
                       <div
                         key={module.id || module._id || index}
                         onClick={() => {
-                          if (isUnlocked || !isEnrolled) {
+                          if (isUnlocked || !isEnrolled || user?.role === 'admin' || user?.role === 'instructor') {
                             setActiveModule(module);
                             const modLessons = module.lessons || module.resources || [];
                             if (modLessons.length > 0) {
@@ -1033,8 +1157,13 @@ const CourseDetails = () => {
                             </span>
                           )}
                         </div>
-                        <div style={{ fontSize: '13px', color: '#6B7280' }}>
-                          {(module.lessons || module.resources || []).length} lessons
+                        <div style={{ fontSize: '13px', color: '#6B7280', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span>{(module.lessons || module.resources || []).length} lessons</span>
+                          {module.assignments && module.assignments.length > 0 && (
+                            <span style={{ fontSize: '11px', fontWeight: '700', padding: '1px 7px', borderRadius: '8px', backgroundColor: '#EDE9FE', color: '#6D28D9' }}>
+                              📝 Assignment
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
@@ -1120,10 +1249,6 @@ const CourseDetails = () => {
                             <button
                               className="btn btn-gold btn-sm"
                               onClick={() => {
-                                if (!isEnrolled) {
-                                  setToastMessage('Please click "Enroll Now" to access video lectures and coursework!');
-                                  return;
-                                }
                                 setActiveModule(activeModule);
                                 setActiveLesson(lesson);
                                 setShowVideoPlayer(true);
@@ -1135,6 +1260,205 @@ const CourseDetails = () => {
                         </div>
                       );
                     })}
+
+                    {/* Module Assignments Section */}
+                    {activeModule.assignments && activeModule.assignments.length > 0 && (
+                      <div style={{ marginTop: '32px', borderTop: '2px dashed #E2E8F0', paddingTop: '28px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '24px' }}>📋</span>
+                            <div>
+                              <h4 style={{ fontSize: '18px', fontWeight: '700', color: '#0F172A', margin: 0 }}>
+                                Module Practical Assignment
+                              </h4>
+                              <p style={{ margin: '2px 0 0 0', fontSize: '13px', color: '#64748B' }}>
+                                Hands-on course project to demonstrate and apply your learning
+                              </p>
+                            </div>
+                          </div>
+                          <span style={{
+                            padding: '4px 12px',
+                            borderRadius: '16px',
+                            backgroundColor: '#EDE9FE',
+                            color: '#6D28D9',
+                            fontSize: '12px',
+                            fontWeight: '700',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            ★ 25% of Final Grade
+                          </span>
+                        </div>
+
+                        {activeModule.assignments.map((assignment, aIdx) => {
+                          const assignKey = assignment.assignment_id || assignment.id;
+                          const submission = assignmentSubmissions[assignKey];
+                          const input = assignmentInputs[assignKey] || {};
+                          const isSubmitting = submittingAssignment[assignKey];
+
+                          return (
+                            <div
+                              key={assignKey || aIdx}
+                              style={{
+                                background: '#FFFFFF',
+                                border: submission ? '1.5px solid #10B981' : '1.5px solid #CBD5E1',
+                                borderRadius: '14px',
+                                padding: '24px',
+                                marginBottom: '20px',
+                                boxShadow: '0 4px 12px rgba(15,23,42,0.04)'
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+                                <div>
+                                  <h5 style={{ fontSize: '17px', fontWeight: '700', color: '#0F172A', margin: 0 }}>
+                                    {assignment.title}
+                                  </h5>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '8px' }}>
+                                    <span style={{ fontSize: '12px', background: '#F1F5F9', color: '#475569', padding: '3px 10px', borderRadius: '6px', fontWeight: '600' }}>
+                                      📅 Due: {assignment.dueDate || 'End of Course'}
+                                    </span>
+                                    <span style={{ fontSize: '12px', background: '#FEF3C7', color: '#92400E', padding: '3px 10px', borderRadius: '6px', fontWeight: '600' }}>
+                                      🎯 Total Marks: {assignment.maxMarks || assignment.totalMarks || 100} pts
+                                    </span>
+                                    <span style={{ fontSize: '12px', background: '#EFF6FF', color: '#1D4ED8', padding: '3px 10px', borderRadius: '6px', fontWeight: '600' }}>
+                                      📤 Format: {assignment.submissionType || 'Code / File'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {submission && (
+                                  <span style={{
+                                    padding: '4px 12px',
+                                    borderRadius: '20px',
+                                    backgroundColor: submission.status === 'Graded' ? '#D1FAE5' : '#E0F2FE',
+                                    color: submission.status === 'Graded' ? '#065F46' : '#0369A1',
+                                    fontSize: '12px',
+                                    fontWeight: '700'
+                                  }}>
+                                    {submission.status === 'Graded' ? `✓ Graded: ${submission.grade}/100` : '✓ Submitted'}
+                                  </span>
+                                )}
+                              </div>
+
+                              <p style={{ fontSize: '14px', color: '#334155', lineHeight: '1.6', margin: '0 0 20px 0' }}>
+                                {assignment.description}
+                              </p>
+
+                              {/* Student Submission Card / Form */}
+                              {isEnrolled ? (
+                                <div style={{
+                                  background: '#F8FAFC',
+                                  border: '1px solid #E2E8F0',
+                                  borderRadius: '10px',
+                                  padding: '18px'
+                                }}>
+                                  {submission ? (
+                                    <div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                        <span style={{ color: '#10B981', fontSize: '16px' }}>✓</span>
+                                        <span style={{ fontWeight: '700', fontSize: '14px', color: '#0F172A' }}>
+                                          Your Submission:
+                                        </span>
+                                        <span style={{ fontSize: '12px', color: '#64748B' }}>
+                                          ({submission.submitted_at ? new Date(submission.submitted_at).toLocaleDateString() : 'Recorded'})
+                                        </span>
+                                      </div>
+                                      <div style={{ background: '#FFFFFF', padding: '12px 14px', borderRadius: '8px', border: '1px solid #E2E8F0', fontSize: '13px', color: '#334155', whiteSpace: 'pre-wrap', marginBottom: '12px' }}>
+                                        {submission.text_content || 'No text content provided.'}
+                                      </div>
+                                      {submission.file_path && (
+                                        <div style={{ fontSize: '13px', color: '#2563EB', marginBottom: '12px' }}>
+                                          📎 Attachment: <strong>{submission.file_path}</strong>
+                                        </div>
+                                      )}
+                                      {submission.feedback && (
+                                        <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', padding: '10px 14px', borderRadius: '6px', fontSize: '13px', color: '#166534', marginTop: '10px' }}>
+                                          <strong>Instructor Feedback:</strong> {submission.feedback}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <label style={{ display: 'block', fontSize: '13px', fontWeight: '600', color: '#1E293B', marginBottom: '6px' }}>
+                                        Submission Solution / Write-up:
+                                      </label>
+                                      <textarea
+                                        rows={3}
+                                        value={input.text || ''}
+                                        onChange={(e) => {
+                                          const val = e.target.value;
+                                          setAssignmentInputs(prev => ({
+                                            ...prev,
+                                            [assignKey]: { ...prev[assignKey], text: val }
+                                          }));
+                                        }}
+                                        placeholder="Describe your solution, paste your code snippet or link your GitHub/Google Drive repository..."
+                                        style={{
+                                          width: '100%',
+                                          padding: '10px 14px',
+                                          borderRadius: '8px',
+                                          border: '1px solid #CBD5E1',
+                                          fontSize: '13px',
+                                          fontFamily: 'Poppins, sans-serif',
+                                          marginBottom: '12px',
+                                          resize: 'vertical'
+                                        }}
+                                      />
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                                        <input
+                                          type="text"
+                                          value={input.filePath || ''}
+                                          onChange={(e) => {
+                                            const val = e.target.value;
+                                            setAssignmentInputs(prev => ({
+                                              ...prev,
+                                              [assignKey]: { ...prev[assignKey], filePath: val }
+                                            }));
+                                          }}
+                                          placeholder="Optional: File URL or attachment link (e.g., github.com/...)"
+                                          style={{
+                                            flex: 1,
+                                            minWidth: '220px',
+                                            padding: '8px 12px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #CBD5E1',
+                                            fontSize: '13px',
+                                            fontFamily: 'Poppins, sans-serif'
+                                          }}
+                                        />
+                                        <button
+                                          type="button"
+                                          className="btn btn-gold btn-sm"
+                                          onClick={() => handleAssignmentSubmit(assignment)}
+                                          disabled={isSubmitting}
+                                          style={{ padding: '8px 20px', fontSize: '13px', fontWeight: '600' }}
+                                        >
+                                          {isSubmitting ? 'Submitting...' : '🚀 Submit Assignment'}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div style={{
+                                  background: '#F1F5F9',
+                                  padding: '12px 16px',
+                                  borderRadius: '8px',
+                                  fontSize: '13px',
+                                  color: '#64748B',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px'
+                                }}>
+                                  <span>🔒</span> Enroll in this course to submit coursework and receive instructor evaluation.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div style={{ textAlign: 'center', color: '#6B7280', padding: '40px' }}>
@@ -1145,7 +1469,7 @@ const CourseDetails = () => {
             </div>
 
             {/* Non-Enrolled Student Enrollment Call-to-Action Banner */}
-            {!isEnrolled && (
+            {!isEnrolled && user?.role !== 'admin' && user?.role !== 'instructor' && (
               <div style={{
                 background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)',
                 border: '1.5px solid #D4AF37',
@@ -1183,8 +1507,8 @@ const CourseDetails = () => {
               </div>
             )}
 
-            {/* Quiz Section — unlocked after video completion for enrolled students */}
-            {isEnrolled && (
+            {/* Quiz Section — unlocked after video completion for enrolled students or preview mode for staff */}
+            {(isEnrolled || user?.role === 'admin' || user?.role === 'instructor' || user?.role === 'faculty') && (
               <div id="quiz-section">
               {quizData && quizData.length > 0 && (
                 <>
@@ -1221,7 +1545,7 @@ const CourseDetails = () => {
                             fontSize: '13px', 
                             fontWeight: '600' 
                           }}>
-                            {result ? `Submitted - Score: ${result.score}/${result.total} (${result.percentage}%)` : 'Quiz Unlocked'}
+                            {result ? `Submitted - Score: ${result.score}/${result.total} (${result.percentage}%)` : ((user?.role === 'admin' || user?.role === 'instructor' || user?.role === 'faculty') ? 'Quiz Preview' : 'Quiz Unlocked')}
                           </span>
                         </div>
 
@@ -1435,22 +1759,28 @@ const CourseDetails = () => {
                   marginBottom: '32px',
                   textAlign: 'center'
                 }}>
-                  <div style={{ fontSize: '36px', marginBottom: '10px' }}>🔒</div>
+                  <div style={{ fontSize: '36px', marginBottom: '10px' }}>
+                    {(user?.role === 'admin' || user?.role === 'instructor' || user?.role === 'faculty') ? '📝' : '🔒'}
+                  </div>
                   <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#1E293B', marginBottom: '8px' }}>
-                    Module Assessment Quiz Locked
+                    {(user?.role === 'admin' || user?.role === 'instructor' || user?.role === 'faculty') 
+                      ? 'No Quiz Configured for This Module' 
+                      : 'Module Assessment Quiz Locked'}
                   </h3>
                   <p style={{ color: '#64748B', fontSize: '14px', maxWidth: '540px', margin: '0 auto 16px auto', lineHeight: '1.5' }}>
-                    {(() => {
-                      const vids = getModuleVideoLessons(activeModule);
-                      const isVDone = v => isLessonCompleted(activeModule.id, v.id) || isLessonCompleted(activeModule._id, v.id) || isLessonCompleted(activeModule.id, v._id) || isLessonCompleted(activeModule._id, v._id);
-                      const doneCount = vids.filter(isVDone).length;
-                      if (vids.length > 1) {
-                        return `This module contains ${vids.length} videos. You have completed ${doneCount} of ${vids.length} videos. Complete all ${vids.length} videos in this module to unlock the assessment quiz.`;
-                      }
-                      return 'Please watch the video lesson above to unlock the module assessment quiz.';
-                    })()}
+                    {(user?.role === 'admin' || user?.role === 'instructor' || user?.role === 'faculty')
+                      ? 'This module does not have any quiz questions configured.'
+                      : (() => {
+                          const vids = getModuleVideoLessons(activeModule);
+                          const isVDone = v => isLessonCompleted(activeModule.id, v.id) || isLessonCompleted(activeModule._id, v.id) || isLessonCompleted(activeModule.id, v._id) || isLessonCompleted(activeModule._id, v._id);
+                          const doneCount = vids.filter(isVDone).length;
+                          if (vids.length > 1) {
+                            return `This module contains ${vids.length} videos. You have completed ${doneCount} of ${vids.length} videos. Complete all ${vids.length} videos in this module to unlock the assessment quiz.`;
+                          }
+                          return 'Please watch the video lesson above to unlock the module assessment quiz.';
+                        })()}
                   </p>
-                  {(() => {
+                  {!((user?.role === 'admin' || user?.role === 'instructor' || user?.role === 'faculty')) && (() => {
                     const vids = getModuleVideoLessons(activeModule);
                     const isVDone = v => isLessonCompleted(activeModule.id, v.id) || isLessonCompleted(activeModule._id, v.id) || isLessonCompleted(activeModule.id, v._id) || isLessonCompleted(activeModule._id, v._id);
                     const doneCount = vids.filter(isVDone).length;

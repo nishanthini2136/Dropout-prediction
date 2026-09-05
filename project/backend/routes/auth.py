@@ -1,3 +1,4 @@
+import time
 from flask import Blueprint, request, jsonify
 from models.user import User
 from utils.auth import AuthUtils
@@ -5,20 +6,38 @@ from utils.notifier import stats_notifier
 
 auth_bp = Blueprint('auth', __name__)
 
+# IP-based in-memory rate limiter: {ip: [timestamp1, timestamp2, ...]}
+_LOGIN_ATTEMPTS = {}
+_RATE_LIMIT_WINDOW = 3 * 60  # 3 minutes
+_RATE_LIMIT_MAX_ATTEMPTS = 5   # 5 attempts per window
+
+def _is_rate_limited(ip_address):
+    now = time.time()
+    history = _LOGIN_ATTEMPTS.get(ip_address, [])
+    # Retain only timestamps within the active 3-minute sliding window
+    valid_history = [t for t in history if now - t < _RATE_LIMIT_WINDOW]
+    _LOGIN_ATTEMPTS[ip_address] = valid_history
+    if len(valid_history) >= _RATE_LIMIT_MAX_ATTEMPTS:
+        return True
+    return False
+
+def _record_login_attempt(ip_address):
+    now = time.time()
+    history = _LOGIN_ATTEMPTS.setdefault(ip_address, [])
+    history.append(now)
+
 @auth_bp.route('/api/auth/register', methods=['POST'])
 def register():
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         
-        # Validate required fields
-        required_fields = ['name', 'email', 'password', 'role']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'{field} is required'}), 400
-        
-        # Validate role
-        if data['role'] not in ['admin', 'student']:
-            return jsonify({'error': 'Invalid role. Must be admin or student'}), 400
+        # Enforce Option B: Public self-registration is strictly for students
+        requested_role = data.get('role', 'student')
+        if requested_role != 'student':
+            return jsonify({
+                'error': 'Invalid role for self-registration. Public registration is restricted to students. Instructor accounts must be provisioned by an administrator.'
+            }), 400
+        data['role'] = 'student'
         
         # Check if user already exists
         user_model = User()
@@ -56,7 +75,16 @@ def register():
 @auth_bp.route('/api/auth/login', methods=['POST'])
 def login():
     try:
-        data = request.get_json()
+        # Rate limiting check: 5 attempts per 3 minutes per client IP
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr or 'unknown').split(',')[0].strip()
+        if _is_rate_limited(client_ip):
+            return jsonify({
+                'error': 'Too many login attempts. Please wait 3 minutes before trying again.'
+            }), 429
+
+        _record_login_attempt(client_ip)
+
+        data = request.get_json() or {}
         
         # Validate required fields
         if 'email' not in data or 'password' not in data:

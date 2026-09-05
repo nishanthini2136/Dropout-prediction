@@ -82,15 +82,17 @@ def get_module_quiz(module_id):
     """
     user_id = request.current_user_id
     course_id = request.args.get('course_id')
+    user_role = getattr(request, 'current_user_role', None)
 
-    # Check progress — wrap in try/except in case module_id is not a valid ObjectId
-    try:
-        video_watched = ProgressModel().is_video_watched(user_id, module_id, course_id=course_id)
-    except Exception:
-        video_watched = False
+    # If caller is admin or instructor, allow inspecting the quiz in preview mode without needing student video watched progress
+    if user_role not in ['admin', 'instructor']:
+        try:
+            video_watched = ProgressModel().is_video_watched(user_id, module_id, course_id=course_id)
+        except Exception:
+            video_watched = False
 
-    if not video_watched:
-        return jsonify({'error': 'Quiz is locked until all videos in this module are completed'}), 403
+        if not video_watched:
+            return jsonify({'error': 'Quiz is locked until all videos in this module are completed'}), 403
 
     try:
         quizzes = []

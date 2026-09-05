@@ -48,7 +48,10 @@ class PredictionModel:
 
         return pred_id
 
-    def get_prediction(self, student_id: str, course_id: str = None):
+    def get_prediction(self, student_id: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, student_id, course_id)
+            
         student_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
         if course_id:
             course_match = {'$in': [ObjectId(course_id), str(course_id)]} if ObjectId.is_valid(course_id) else str(course_id)
@@ -59,7 +62,10 @@ class PredictionModel:
         else:
             return list(self.collection.find({'student_id': student_match}))
 
-    def get_prediction_history(self, student_id: str, course_id: str = None, limit: int = 20):
+    def get_prediction_history(self, student_id: str, course_id: str = None, limit: int = 20, requesting_user_id: str = None, requesting_role: str = None):
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(requesting_user_id, requesting_role, student_id, course_id)
+            
         student_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
         query = {'student_id': student_match}
         if course_id:

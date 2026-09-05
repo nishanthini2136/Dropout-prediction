@@ -30,7 +30,18 @@ class RiskEngine:
         except Exception as e:
             print(f"[RiskEngine] Failed to load CatBoost model: {e}")
 
-    def extract_features(self, student_id: str, course_id: str = None):
+    def validate_access(self, student_id: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        """Enforces student self-access, instructor enrollment-based scoping, and admin permissions."""
+        from middleware.rbac import check_student_data_access
+        check_student_data_access(
+            requesting_user_id=requesting_user_id,
+            requesting_role=requesting_role,
+            target_student_id=student_id,
+            course_id=course_id
+        )
+
+    def extract_features(self, student_id: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        self.validate_access(student_id, course_id=course_id, requesting_user_id=requesting_user_id, requesting_role=requesting_role)
         student_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
         
         # Course match filter
@@ -272,7 +283,8 @@ class RiskEngine:
             iso_str += 'Z'
         return badge, score, iso_str
 
-    def predict_risk(self, student_id: str, course_id: str = None):
+    def predict_risk(self, student_id: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
+        self.validate_access(student_id, course_id=course_id, requesting_user_id=requesting_user_id, requesting_role=requesting_role)
         user_match = {'$in': [ObjectId(student_id), str(student_id)]} if ObjectId.is_valid(student_id) else str(student_id)
 
         # If no course_id provided, loop over all enrolled courses for this student
@@ -285,23 +297,23 @@ class RiskEngine:
             if enrollments:
                 for e in enrollments:
                     c_id = str(e['course_id'])
-                    res = self.predict_risk(student_id, c_id)
+                    res = self.predict_risk(student_id, c_id, requesting_user_id=requesting_user_id, requesting_role=requesting_role)
                     results.append(res)
             else:
                 # Student has no course enrollments yet — evaluate baseline risk
-                res = self._predict_single(student_id, None)
+                res = self._predict_single(student_id, None, requesting_user_id=requesting_user_id, requesting_role=requesting_role)
                 results.append(res)
                 
             self.update_user_overall_risk(student_id)
             return results
 
-        result = self._predict_single(student_id, course_id)
+        result = self._predict_single(student_id, course_id, requesting_user_id=requesting_user_id, requesting_role=requesting_role)
         self.update_user_overall_risk(student_id)
         return result
 
-    def _predict_single(self, student_id: str, course_id: str = None):
+    def _predict_single(self, student_id: str, course_id: str = None, requesting_user_id: str = None, requesting_role: str = None):
         print(f"[RiskEngine] Predicting risk for student_id={student_id}, course_id={course_id}")
-        features = self.extract_features(student_id, course_id)
+        features = self.extract_features(student_id, course_id, requesting_user_id=requesting_user_id, requesting_role=requesting_role)
 
         risk_probability = 0.0
         # Check if course is already completed (100% progress or all lessons completed)

@@ -71,6 +71,29 @@ def enrich_course_module_durations(course):
                             lesson['duration'] = detected
     return course
 
+from datetime import datetime
+from bson import ObjectId
+
+def _serialize_doc(doc):
+    """Helper to convert ObjectIds and datetime objects to JSON-serializable strings."""
+    if not doc:
+        return doc
+    if isinstance(doc, list):
+        return [_serialize_doc(item) for item in doc]
+    if isinstance(doc, dict):
+        res = {}
+        for k, v in doc.items():
+            if isinstance(v, ObjectId):
+                res[k] = str(v)
+            elif isinstance(v, datetime):
+                res[k] = v.isoformat()
+            elif isinstance(v, (dict, list)):
+                res[k] = _serialize_doc(v)
+            else:
+                res[k] = v
+        return res
+    return doc
+
 @courses_bp.route('/api/courses', methods=['GET'])
 def get_all_courses():
     try:
@@ -107,7 +130,7 @@ def get_all_courses():
             course['seats_left'] = max(0, capacity - enrolled_count)
             enrich_course_module_durations(course)
         
-        return jsonify(courses), 200
+        return jsonify(_serialize_doc(courses)), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -128,13 +151,13 @@ def get_course(course_id):
         c_id = str(course['_id'])
         course['_id'] = c_id
         capacity = int(course.get('capacity', 30))
-        enrolled_count = enrollment_model.collection.count_documents({'course_id': ObjectId(c_id)})
+        enrolled_count = enrollment_model.collection.count_documents({'course_id': ObjectId(c_id) if ObjectId.is_valid(c_id) else c_id})
         course['capacity'] = capacity
         course['enrolled_count'] = enrolled_count
         course['seats_left'] = max(0, capacity - enrolled_count)
         enrich_course_module_durations(course)
         
-        return jsonify({'course': course}), 200
+        return jsonify({'course': _serialize_doc(course)}), 200
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500

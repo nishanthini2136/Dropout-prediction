@@ -4,10 +4,12 @@ import axios from 'axios';
 import './Dashboard.css';
 import Navbar from '../components/Navbar';
 import Toast from '../components/Toast';
+import { useAuth } from '../context/AuthContext';
 
 const CourseCreator = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { user, role } = useAuth();
   const [toastMessage, setToastMessage] = useState('');
   const [activeSection, setActiveSection] = useState('basic');
   const [saving, setSaving] = useState(false);
@@ -31,11 +33,26 @@ const CourseCreator = () => {
   const [courseVideoUrl, setCourseVideoUrl] = useState('');
 
   useEffect(() => {
+    if (!id && user?.name && !basicInfo.instructor) {
+      setBasicInfo(prev => ({ ...prev, instructor: user.name }));
+    }
+  }, [id, user]);
+
+  useEffect(() => {
     if (id) {
-      axios.get(`/api/courses/${id}`)
-        .catch(() => axios.get(`http://localhost:5000/api/courses/${id}`))
-        .then(res => {
-          const c = res.data.course;
+      const token = localStorage.getItem('token');
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const fetchCourseData = async () => {
+        try {
+          let res;
+          try {
+            res = await axios.get(`/api/instructor/courses/${id}`, { headers: authHeaders });
+          } catch (e) {
+            res = await axios.get(`/api/courses/${id}`, { headers: authHeaders });
+          }
+
+          const c = res.data?.course || res.data;
           if (c) {
             setBasicInfo(prev => ({
               ...prev,
@@ -43,13 +60,13 @@ const CourseCreator = () => {
               description: c.description || '',
               category: c.category || '',
               difficulty: c.difficulty || 'Beginner',
-              instructor: c.instructor || '',
-              duration: c.duration || '',
+              instructor: c.instructor || c.instructor_name || user?.name || '',
+              duration: c.duration || (c.credits ? `${c.credits} hours` : '') || '',
               language: c.language || 'English',
-              prerequisites: c.prerequisites || '',
-              syllabus_pdf: c.syllabus_pdf || null,
-              reference_materials_pdf: c.reference_materials_pdf || null,
-              practice_exercises_pdf: c.practice_exercises_pdf || null
+              prerequisites: Array.isArray(c.prerequisites) ? c.prerequisites.join(', ') : (c.prerequisites || ''),
+              syllabus_pdf: c.syllabus_pdf || (Array.isArray(c.studyMaterials) ? c.studyMaterials.find(m => m.id === 'syllabus')?.url : null),
+              reference_materials_pdf: c.reference_materials_pdf || (Array.isArray(c.studyMaterials) ? c.studyMaterials.find(m => m.id === 'reference')?.url : null),
+              practice_exercises_pdf: c.practice_exercises_pdf || (Array.isArray(c.studyMaterials) ? c.studyMaterials.find(m => m.id === 'exercises')?.url : null)
             }));
 
             const defVideo = c.course_video_url || c.youtube_url || 
@@ -57,25 +74,27 @@ const CourseCreator = () => {
               (c.modules?.[0]?.lessons?.[0]?.url) || '';
             setCourseVideoUrl(defVideo);
 
-            if (Array.isArray(c.modules)) {
+            if (Array.isArray(c.modules) && c.modules.length > 0) {
               const normalized = c.modules.map((m, idx) => {
-                const rawRes = Array.isArray(m.resources) ? m.resources : (Array.isArray(m.lessons) ? m.lessons : []);
+                const rawRes = Array.isArray(m.resources) && m.resources.length > 0 
+                  ? m.resources 
+                  : (Array.isArray(m.lessons) ? m.lessons : []);
                 const resources = rawRes.map((r, rIdx) => ({
-                  id: r.id || (Date.now() + rIdx),
+                  id: r.id || r._id || (Date.now() + rIdx),
                   type: r.type || 'video',
-                  title: r.title || '',
+                  title: r.title || `Lesson ${rIdx + 1}`,
                   url: r.url || defVideo || '',
                   duration: r.duration || '',
                   ...r
                 }));
                 const rawQuizzes = Array.isArray(m.quizzes) ? m.quizzes : [];
                 const quizzes = rawQuizzes.map((q, qIdx) => ({
-                  id: q.id || (Date.now() + qIdx),
+                  id: q.id || q._id || (Date.now() + qIdx),
                   title: q.title || '',
                   timeLimit: q.timeLimit || 30,
                   passingMarks: q.passingMarks || 70,
                   questions: (Array.isArray(q.questions) ? q.questions : []).map((qst, qstIdx) => ({
-                    id: qst.id || (Date.now() + qstIdx),
+                    id: qst.id || qst._id || (Date.now() + qstIdx),
                     marks: qst.marks || 1,
                     question: qst.question || '',
                     correctAnswer: qst.correctAnswer !== undefined ? qst.correctAnswer : 0,
@@ -86,7 +105,7 @@ const CourseCreator = () => {
                 }));
                 const rawAssignments = Array.isArray(m.assignments) ? m.assignments : [];
                 const assignments = rawAssignments.map((a, aIdx) => ({
-                  id: a.id || (Date.now() + aIdx),
+                  id: a.id || a._id || (Date.now() + aIdx),
                   title: a.title || '',
                   description: a.description || '',
                   dueDate: a.dueDate || '',
@@ -95,8 +114,8 @@ const CourseCreator = () => {
                   ...a
                 }));
                 return {
-                  id: m.id || (Date.now() + idx),
-                  title: m.title || '',
+                  id: m.id || m._id || (Date.now() + idx),
+                  title: m.title || `Module ${idx + 1}`,
                   description: m.description || '',
                   ...m,
                   resources,
@@ -110,12 +129,16 @@ const CourseCreator = () => {
 
             if (c.completionCriteria) setCompletionCriteria(prev => ({ ...prev, ...c.completionCriteria }));
             if (c.learningConfig) setLearningConfig(prev => ({ ...prev, ...c.learningConfig }));
-            if (Array.isArray(c.discussionTopics)) setDiscussionTopics(c.discussionTopics);
+            if (Array.isArray(c.discussionTopics) && c.discussionTopics.length > 0) setDiscussionTopics(c.discussionTopics);
           }
-        })
-        .catch(err => console.error('Error fetching course for edit:', err));
+        } catch (err) {
+          console.error('Error fetching course for edit:', err);
+        }
+      };
+
+      fetchCourseData();
     }
-  }, [id]);
+  }, [id, user]);
 
   // Course Modules
   const [modules, setModules] = useState([
@@ -567,7 +590,19 @@ const CourseCreator = () => {
     setDiscussionTopics(prev => prev.filter(topic => topic.id !== topicId));
   };
 
-  const handleSaveAsDraft = async () => {
+  const handleSubmitForReview = async () => {
+    const errors = {};
+    if (!basicInfo.title || !basicInfo.title.trim()) errors.title = 'Course title is required';
+    if (!basicInfo.description || !basicInfo.description.trim()) errors.description = 'Course description is required';
+    if (!basicInfo.category || !basicInfo.category.trim()) errors.category = 'Category is required';
+    if (!basicInfo.duration || !basicInfo.duration.trim()) errors.duration = 'Course duration is required';
+
+    if (Object.keys(errors).length > 0) {
+      const errorMessage = Object.values(errors).join(', ');
+      setToastMessage(`Please fill in required fields: ${errorMessage}`);
+      return;
+    }
+
     setSaving(true);
     try {
       const formData = new FormData();
@@ -575,26 +610,17 @@ const CourseCreator = () => {
       formData.append('description', basicInfo.description);
       formData.append('category', basicInfo.category);
       formData.append('difficulty', basicInfo.difficulty);
-      formData.append('instructor', basicInfo.instructor);
+      formData.append('instructor', basicInfo.instructor || user?.name || 'Instructor');
       formData.append('duration', basicInfo.duration);
       formData.append('language', basicInfo.language);
       formData.append('prerequisites', basicInfo.prerequisites);
       formData.append('is_active', false);
 
-      if (basicInfo.thumbnail instanceof File) {
-        formData.append('thumbnail', basicInfo.thumbnail);
-      }
-      if (basicInfo.syllabus_pdf instanceof File) {
-        formData.append('syllabus_pdf', basicInfo.syllabus_pdf);
-      }
-      if (basicInfo.reference_materials_pdf instanceof File) {
-        formData.append('reference_materials_pdf', basicInfo.reference_materials_pdf);
-      }
-      if (basicInfo.practice_exercises_pdf instanceof File) {
-        formData.append('practice_exercises_pdf', basicInfo.practice_exercises_pdf);
-      }
+      if (basicInfo.thumbnail instanceof File) formData.append('thumbnail', basicInfo.thumbnail);
+      if (basicInfo.syllabus_pdf instanceof File) formData.append('syllabus_pdf', basicInfo.syllabus_pdf);
+      if (basicInfo.reference_materials_pdf instanceof File) formData.append('reference_materials_pdf', basicInfo.reference_materials_pdf);
+      if (basicInfo.practice_exercises_pdf instanceof File) formData.append('practice_exercises_pdf', basicInfo.practice_exercises_pdf);
 
-      // Attach module video files to formData
       modules.forEach((mod, mIdx) => {
         (mod.resources || []).forEach((res, rIdx) => {
           if (res.videoFile instanceof File) {
@@ -603,8 +629,7 @@ const CourseCreator = () => {
         });
       });
 
-      // Prepare clean modules array for JSON serialization (omit File objects)
-      const cleanModulesDraft = modules.map(mod => {
+      const cleanModules = modules.map(mod => {
         const cleanRes = (mod.resources || []).map(res => {
           const { videoFile, ...cleanResItem } = res;
           return cleanResItem;
@@ -626,26 +651,32 @@ const CourseCreator = () => {
 
       formData.append('course_video_url', courseVideoUrl);
       formData.append('youtube_url', courseVideoUrl);
-      formData.append('modules', JSON.stringify(cleanModulesDraft));
+      formData.append('modules', JSON.stringify(cleanModules));
       formData.append('completionCriteria', JSON.stringify(completionCriteria));
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
 
-      const url = id ? `http://localhost:5000/api/courses/${id}` : 'http://localhost:5000/api/courses';
+      const url = id ? `/api/instructor/courses/${id}` : '/api/instructor/courses';
       const method = id ? 'put' : 'post';
 
-      const response = await axios[method](url, formData, {
+      const saveRes = await axios[method](url, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${localStorage.getItem('token')}`
         }
       });
 
-      console.log('Course saved successfully:', response.data);
-      setToastMessage(id ? 'Course updated successfully' : 'Course saved as draft');
-      setTimeout(() => navigate('/admin/dashboard'), 1500);
+      const savedId = id || saveRes.data?.course?._id || saveRes.data?.course?.id || saveRes.data?.course_id;
+      if (savedId) {
+        await axios.post(`/api/instructor/courses/${savedId}/submit`, {}, {
+          headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+        });
+      }
+
+      setToastMessage('Course submitted for admin review successfully!');
+      setTimeout(() => navigate('/instructor/dashboard'), 1500);
     } catch (error) {
-      console.error('Error saving course:', error);
+      console.error('Error submitting course for review:', error);
       if (error.response) {
         setToastMessage(`Error: ${error.response.data?.error || error.response.statusText}`);
       } else {
@@ -743,7 +774,7 @@ const CourseCreator = () => {
       formData.append('learningConfig', JSON.stringify(learningConfig));
       formData.append('discussionTopics', JSON.stringify(discussionTopics));
 
-      const url = id ? `http://localhost:5000/api/courses/${id}` : 'http://localhost:5000/api/courses';
+      const url = id ? `/api/courses/${id}` : '/api/courses';
       const method = id ? 'put' : 'post';
 
       const response = await axios[method](url, formData, {
@@ -2128,35 +2159,43 @@ const CourseCreator = () => {
           marginBottom: '32px'
         }}>
           <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#111827', marginBottom: '20px' }}>
-            Publish Settings
+            {role === 'instructor' || user?.role === 'instructor' ? 'Course Actions' : 'Publish Settings'}
           </h3>
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
             <button
               className="btn btn-ghost"
-              onClick={() => navigate('/admin/dashboard')}
+              onClick={() => navigate((role === 'instructor' || user?.role === 'instructor') ? '/instructor/dashboard' : '/admin/dashboard')}
               disabled={saving}
             >
               Cancel
             </button>
-            <button
-              className="btn btn-gold"
-              onClick={handleSaveAsDraft}
-              disabled={saving}
-            >
-              {saving ? 'Saving...' : 'Save as Draft'}
-            </button>
-            <button
-              className="btn btn-gold"
-              onClick={handlePublish}
-              disabled={saving}
-              style={{ backgroundColor: '#10B981' }}
-            >
-              {saving ? 'Publishing...' : 'Publish Course'}
-            </button>
+            {(role === 'instructor' || user?.role === 'instructor') ? (
+              <button
+                className="btn btn-gold"
+                onClick={handleSubmitForReview}
+                disabled={saving}
+                style={{ backgroundColor: '#2fbfbf', borderColor: '#2fbfbf', color: '#0F172A', fontWeight: '600' }}
+              >
+                {saving ? (id ? 'Updating & Submitting...' : 'Submitting...') : (id ? 'Update & Submit for Review' : 'Submit for Review')}
+              </button>
+            ) : (
+              <button
+                className="btn btn-gold"
+                onClick={handlePublish}
+                disabled={saving}
+                style={{ backgroundColor: '#10B981' }}
+              >
+                {saving ? (id ? 'Updating...' : 'Publishing...') : (id ? 'Update & Publish Course' : 'Publish Course')}
+              </button>
+            )}
           </div>
         </div>
 
-        <footer className="dash-footer">E-LEARNING MANAGEMENT SYSTEM — ADMIN DASHBOARD</footer>
+        <footer className="dash-footer">
+          {(role === 'instructor' || user?.role === 'instructor')
+            ? 'E-LEARNING MANAGEMENT SYSTEM — INSTRUCTOR STUDIO'
+            : 'E-LEARNING MANAGEMENT SYSTEM — ADMIN DASHBOARD'}
+        </footer>
       </div>
 
       <Toast message={toastMessage} />

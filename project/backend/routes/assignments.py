@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
-from utils.auth import token_required, admin_required
+from utils.auth import token_required
+from middleware.rbac import requires_role
 from models.assignment import AssignmentModel
 from models.submission import SubmissionModel
 
@@ -25,7 +26,7 @@ def get_course_assignments(course_id):
         return jsonify({'error': str(e)}), 500
 
 @assignments_bp.route('/', methods=['POST'])
-@admin_required
+@requires_role('instructor', 'admin')
 def create_assignment():
     try:
         data = request.get_json()
@@ -65,8 +66,29 @@ def submit_assignment(assignment_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@assignments_bp.route('/<assignment_id>/my-submission', methods=['GET'])
+@token_required
+def get_my_submission(assignment_id):
+    try:
+        from datetime import datetime
+        user_id = request.current_user_id
+        submission = SubmissionModel().get_submission(assignment_id, user_id)
+        if not submission:
+            return jsonify({'submission': None}), 200
+        submission['_id'] = str(submission['_id'])
+        submission['assignment_id'] = str(submission.get('assignment_id', ''))
+        submission['student_id'] = str(submission.get('student_id', ''))
+        submission['course_id'] = str(submission.get('course_id', ''))
+        if isinstance(submission.get('submitted_at'), datetime):
+            submission['submitted_at'] = submission['submitted_at'].isoformat()
+        if isinstance(submission.get('graded_at'), datetime):
+            submission['graded_at'] = submission['graded_at'].isoformat()
+        return jsonify({'submission': submission}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @assignments_bp.route('/<assignment_id>/submissions', methods=['GET'])
-@admin_required
+@requires_role('instructor', 'admin')
 def get_submissions(assignment_id):
     try:
         from datetime import datetime
@@ -104,7 +126,7 @@ def get_submissions(assignment_id):
         return jsonify({'error': str(e)}), 500
 
 @assignments_bp.route('/submission/<submission_id>/grade', methods=['POST'])
-@admin_required
+@requires_role('instructor', 'admin')
 def grade_submission(submission_id):
     try:
         data = request.get_json()

@@ -59,12 +59,15 @@ const StudentDashboard = () => {
   const fetchEnrolledCourses = async () => {
     try {
       const response = await axios.get('/api/enrollments/my-courses', { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
-      const data = Array.isArray(response.data) ? response.data : [];
+      const data = Array.isArray(response.data) ? response.data : (response.data?.enrollments || []);
       setEnrolledCourses(data);
       if (data.length > 0 && !selectedCourseId) {
-        const cId = data[0].course_id._id;
-        setSelectedCourseId(cId);
-        fetchRoadmap(1, cId);
+        const first = data[0];
+        const cId = first.course_id?._id || first.course_id?.id || (typeof first.course_id === 'string' ? first.course_id : '') || first.course?._id;
+        if (cId) {
+          setSelectedCourseId(cId);
+          fetchRoadmap(1, cId);
+        }
       }
     } catch (error) {
       console.error('Error fetching enrolled courses:', error);
@@ -205,76 +208,93 @@ const StudentDashboard = () => {
             {enrolledCourses.length === 0 ? (
               <div className="empty-state" style={{ gridColumn: '1/-1' }}>You haven't enrolled in any courses yet.</div>
             ) : (
-              enrolledCourses.map(enrollment => (
-                <div key={enrollment._id} className="course-card" onClick={() => navigate(`/course/${enrollment.course_id._id}`)} style={{ cursor: 'pointer', position: 'relative' }}>
-                  <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px', position: 'relative' }}>
-                    
-                    {/* Status Badge (Left: Enrolled vs Completed) */}
-                    <div 
-                      className="badge-enrolled" 
-                      style={{ 
+              enrolledCourses.map(enrollment => {
+                const course = (typeof enrollment.course_id === 'object' && enrollment.course_id !== null)
+                  ? enrollment.course_id
+                  : (typeof enrollment.course === 'object' && enrollment.course !== null ? enrollment.course : {});
+                const courseId = course._id || course.id || (typeof enrollment.course_id === 'string' ? enrollment.course_id : '') || enrollment._id;
+                const thumbnailSrc = course.thumbnail 
+                  ? (course.thumbnail.startsWith('http') ? course.thumbnail : `http://localhost:5000${course.thumbnail}`) 
+                  : fallbackImage;
+                const title = course.title || 'Enrolled Course';
+                const code = course.code || 'COURSE';
+                const category = course.category || 'General';
+                const description = course.description || 'Access your coursework and resources.';
+                const isDone = (enrollment.progress >= 100 || enrollment.is_completed);
+                const riskBadge = isDone ? 'Low' : (enrollment.risk_badge || 'Low');
+                const riskScore = isDone ? '0.0' : (enrollment.risk_score !== undefined ? Number(enrollment.risk_score).toFixed(1) : '0.0');
+
+                return (
+                  <div key={enrollment._id || courseId} className="course-card" onClick={() => courseId && navigate(`/course/${courseId}`)} style={{ cursor: 'pointer', position: 'relative' }}>
+                    <div className="thumbnail-wrapper" style={{ height: '140px', width: '100%', borderRadius: '10px', overflow: 'hidden', marginBottom: '16px', position: 'relative' }}>
+                      
+                      {/* Status Badge (Left: Enrolled vs Completed) */}
+                      <div 
+                        className="badge-enrolled" 
+                        style={{ 
+                          top: '10px', 
+                          left: '10px', 
+                          right: 'auto',
+                          background: isDone
+                            ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' 
+                            : undefined
+                        }}
+                      >
+                        {isDone ? 'Completed 🎉' : 'Enrolled'}
+                      </div>
+
+                      {/* Risk Badge (Right) */}
+                      <span style={{ 
+                        position: 'absolute', 
                         top: '10px', 
-                        left: '10px', 
-                        right: 'auto',
-                        background: (enrollment.progress >= 100 || enrollment.is_completed) 
-                          ? 'linear-gradient(135deg, #059669 0%, #10b981 100%)' 
-                          : undefined
-                      }}
-                    >
-                      {(enrollment.progress >= 100 || enrollment.is_completed) ? 'Completed 🎉' : 'Enrolled'}
+                        right: '10px', 
+                        zIndex: 10,
+                        background: isDone
+                          ? '#dcfce7'
+                          : riskBadge === 'High' 
+                            ? '#fee2e2' 
+                            : riskBadge === 'Medium' 
+                              ? '#fef3c7' 
+                              : '#dcfce7', 
+                        color: isDone
+                          ? '#15803d'
+                          : riskBadge === 'High' 
+                            ? '#ef4444' 
+                            : riskBadge === 'Medium' 
+                              ? '#b45309' 
+                              : '#047857',
+                        padding: '4px 10px', 
+                        borderRadius: '6px', 
+                        fontWeight: 'bold', 
+                        fontSize: '11px',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
+                        border: '1px solid rgba(255, 255, 255, 0.4)'
+                      }}>
+                        {isDone
+                          ? '0% Risk'
+                          : `Risk: ${riskBadge} (${riskScore}%)`}
+                      </span>
+
+                      <img
+                        src={thumbnailSrc}
+                        alt={title}
+                        style={{ height: '100%', width: '100%', objectFit: 'cover' }}
+                        onError={(e) => e.target.src = fallbackImage}
+                      />
                     </div>
-
-                    {/* Risk Badge (Right) */}
-                    <span style={{ 
-                      position: 'absolute', 
-                      top: '10px', 
-                      right: '10px', 
-                      zIndex: 10,
-                      background: (enrollment.progress >= 100 || enrollment.is_completed)
-                        ? '#dcfce7'
-                        : enrollment.risk_badge === 'High' 
-                          ? '#fee2e2' 
-                          : enrollment.risk_badge === 'Medium' 
-                            ? '#fef3c7' 
-                            : '#dcfce7', 
-                      color: (enrollment.progress >= 100 || enrollment.is_completed)
-                        ? '#15803d'
-                        : enrollment.risk_badge === 'High' 
-                          ? '#ef4444' 
-                          : enrollment.risk_badge === 'Medium' 
-                            ? '#b45309' 
-                            : '#047857',
-                      padding: '4px 10px', 
-                      borderRadius: '6px', 
-                      fontWeight: 'bold', 
-                      fontSize: '11px',
-                      boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-                      border: '1px solid rgba(255, 255, 255, 0.4)'
-                    }}>
-                      {(enrollment.progress >= 100 || enrollment.is_completed)
-                        ? '0% Risk'
-                        : `Risk: ${enrollment.risk_badge} (${enrollment.risk_score?.toFixed(1)}%)`}
-                    </span>
-
-                    <img
-                      src={enrollment.course_id.thumbnail ? (enrollment.course_id.thumbnail.startsWith('http') ? enrollment.course_id.thumbnail : `http://localhost:5000${enrollment.course_id.thumbnail}`) : fallbackImage}
-                      alt={enrollment.course_id.title}
-                      style={{ height: '100%', width: '100%', objectFit: 'cover' }}
-                      onError={(e) => e.target.src = fallbackImage}
-                    />
+                    <div className="code">{code} · {category}</div>
+                    <h3>{title}</h3>
+                    <div className="desc">{description}</div>
+                    <div className="progress-section" style={{ marginTop: '16px' }}>
+                      <div className="progress-bar"><div className="progress-fill" style={{ width: `${enrollment.progress || 0}%` }}/></div>
+                      <div className="progress-text">{enrollment.progress || 0}% complete</div>
+                    </div>
+                    <div className="actions" onClick={(e) => e.stopPropagation()} style={{ marginTop: '16px' }}>
+                      <button className="btn btn-gold btn-sm" style={{ width: '100%' }} onClick={() => courseId && navigate(`/course/${courseId}`)}>Continue Learning</button>
+                    </div>
                   </div>
-                  <div className="code">{enrollment.course_id.code} · {enrollment.course_id.category}</div>
-                  <h3>{enrollment.course_id.title}</h3>
-                  <div className="desc">{enrollment.course_id.description}</div>
-                  <div className="progress-section" style={{ marginTop: '16px' }}>
-                    <div className="progress-bar"><div className="progress-fill" style={{ width: `${enrollment.progress}%` }}/></div>
-                    <div className="progress-text">{enrollment.progress}% complete</div>
-                  </div>
-                  <div className="actions" onClick={(e) => e.stopPropagation()} style={{ marginTop: '16px' }}>
-                    <button className="btn btn-gold btn-sm" style={{ width: '100%' }} onClick={() => navigate(`/course/${enrollment.course_id._id}`)}>Continue Learning</button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 

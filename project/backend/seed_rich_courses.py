@@ -432,14 +432,53 @@ def seed_courses():
         # 2. Update or insert course document
         existing = courses_col.find_one({'code': code})
         if existing:
-            cdata['_id'] = existing['_id']
+            c_id = existing['_id']
+            cdata['_id'] = c_id
             courses_col.replace_one({'code': code}, cdata)
             print(f"Updated course '{title}' ({code}) with {len(cdata['modules'])} modules and PDFs.")
         else:
             res = courses_col.insert_one(cdata)
-            print(f"Created course '{title}' ({code}) with ID {res.inserted_id} and {len(cdata['modules'])} modules.")
+            c_id = res.inserted_id
+            print(f"Created course '{title}' ({code}) with ID {c_id} and {len(cdata['modules'])} modules.")
 
-    print("\nSuccessfully seeded all multi-module courses with PDF resources!")
+        # 3. Ensure assignment exists in assignments collection and is linked to the module
+        assignments_col = db.get_db()['assignments']
+        assign_info = {
+            'P-564': ('Python Capstone: Automated Data Processing & CLI Utility', 'Develop a modular Python application that ingests unstructured student assessment data, applies string transformations, handles runtime exceptions with try-except blocks, and outputs a formatted statistical summary report.', 'PY-A101'),
+            'C-346': ('Dynamic Memory & Linked List Record Manager', 'Implement a robust C program utilizing dynamic memory allocation (malloc/free), pointers, and struct definitions to build an interactive singly linked list data manager with search and deletion operations.', 'C-A101'),
+            'DS-973': ('Pandas & EDA Machine Learning Portfolio', 'Conduct exploratory data analysis using Pandas, Seaborn, and Scikit-Learn to preprocess feature vectors, engineer features, and train a supervised classification model evaluated with ROC-AUC metrics.', 'DS-A101'),
+            'JV-949': ('OOP Banking System & Custom Exception Handling', 'Architect an object-oriented banking application in Java demonstrating interface polymorphism, abstract inheritance, encapsulated account balances, custom checked exceptions, and Collections Framework storage.', 'JV-A101'),
+            'WEB-782': ('Full-Stack Dashboard & Express REST API Integration', 'Construct a responsive modern web dashboard interface using semantic HTML5, CSS Flexbox/Grid, and React connected to an Express REST backend with async/await CRUD operations.', 'WEB-A101'),
+        }.get(code)
+
+        if assign_info:
+            from datetime import timedelta, datetime
+            a_title, a_desc, a_id_code = assign_info
+            due_dt = datetime.utcnow() + timedelta(days=30)
+            existing_a = assignments_col.find_one({'$or': [{'course_id': c_id}, {'course_id': str(c_id)}]})
+            if existing_a:
+                a_id = existing_a['_id']
+                assignments_col.update_one({'_id': a_id}, {'$set': {'title': a_title, 'description': a_desc, 'due_date': due_dt, 'max_score': 100, 'weight': 25.0}})
+            else:
+                a_res = assignments_col.insert_one({'course_id': c_id, 'title': a_title, 'description': a_desc, 'due_date': due_dt, 'max_score': 100, 'weight': 25.0, 'created_at': datetime.utcnow()})
+                a_id = a_res.inserted_id
+
+            if cdata.get('modules'):
+                cdata['modules'][-1]['assignments'] = [{
+                    'id': a_id_code,
+                    'assignment_id': str(a_id),
+                    'title': a_title,
+                    'description': a_desc,
+                    'dueDate': due_dt.strftime('%Y-%m-%d'),
+                    'maxMarks': 100,
+                    'totalMarks': 100,
+                    'weight': 25.0,
+                    'submissionType': 'Online / Code & File',
+                    'fileUpload': True
+                }]
+                courses_col.update_one({'_id': c_id}, {'$set': {'modules': cdata['modules']}})
+
+    print("\nSuccessfully seeded all multi-module courses with PDF resources and assignments!")
 
 
 if __name__ == '__main__':

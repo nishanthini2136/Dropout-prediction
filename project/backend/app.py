@@ -15,6 +15,7 @@ from routes.quizzes import quizzes_bp
 from routes.assignments import assignments_bp
 from routes.forum import forum_bp
 from routes.student import student_bp
+from routes.instructor import instructor_bp
 
 app = Flask(__name__)
 
@@ -42,6 +43,7 @@ app.register_blueprint(quizzes_bp)
 app.register_blueprint(assignments_bp)
 app.register_blueprint(forum_bp)
 app.register_blueprint(student_bp)
+app.register_blueprint(instructor_bp)
 
 @app.route('/')
 def home():
