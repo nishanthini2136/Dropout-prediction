@@ -81,3 +81,6 @@ instance/
 
 project/Dataset/
 *.csv
+
+# Documentation / Scratch Notes
+IMPLEMENTATION_PROCESS.md
